@@ -32,7 +32,7 @@
   var fasesCache = null;
   function getFases() {
     if (fasesCache) return Promise.resolve(fasesCache);
-    return sb.from('fases').select('id,nome,descricao_publica,ordem,etapa_principal,oculta').order('ordem').then(function (r) {
+    return sb.from('fases').select('id,nome,descricao_publica,significado,acao,ordem,etapa_principal,oculta').order('ordem').then(function (r) {
       fasesCache = r.data || [];
       return fasesCache;
     });
@@ -90,9 +90,11 @@
     if (d.fase_id === 8) call = '<div class="callout ok">Seu pedido foi concluído. Procure o cartório para retirar a certidão.</div>';
     if (d.fase_id === 9) call = '<div class="callout bad">Seu pedido não seguirá pela via extrajudicial. Procure o cartório para orientações.</div>';
 
+    var guide = (cur.significado || cur.acao) ? '<div class="guide">' + (cur.significado ? '<div><h4>O que isso significa</h4><p>' + esc(cur.significado) + '</p></div>' : '') +
+      (cur.acao ? '<div class="todo"><h4>O que você precisa fazer agora</h4><p>' + esc(cur.acao) + '</p></div>' : '') + '</div>' : '';
     var prazos = d.prazos || [];
     var pbox = prazos.length ? '<div class="pbox"><b>Prazos em andamento</b><div class="pchips">' + prazos.map(prazoChip).join('') + '</div></div>' : '';
-    return call + pbox + '<ol class="tl" aria-label="Linha do tempo do pedido">' + items + upHTML + '</ol>';
+    return guide + call + pbox + '<ol class="tl" aria-label="Linha do tempo do pedido">' + items + upHTML + '</ol>';
   }
 
   function render(d, fases) {
@@ -101,7 +103,8 @@
     return '<div class="result"><div class="res-h"><span class="k">Usucapião extrajudicial</span><h3>Protocolo ' + esc(d.protocolo) + '</h3>' +
       '<div class="meta"><span class="pill" style="--c:' + phaseColor(d.fase_id) + '">' + esc(cur.nome) + '</span>' +
       (last ? '<span>Atualizado em ' + fmtDate(last.em) + '</span>' : '') + '</div>' + progress(d, fases).html + '</div>' +
-      timelineHTML(d, fases) + '</div>';
+      timelineHTML(d, fases) +
+      '<div class="res-actions"><button type="button" class="btn" data-act="print">Imprimir ou salvar em PDF</button><button type="button" class="btn" data-act="copy">Copiar o link</button><button type="button" class="btn" data-act="save">Lembrar neste aparelho</button></div></div>';
   }
 
   /* ---------- área do advogado: vários processos abertos ao mesmo tempo ---------- */
@@ -148,7 +151,7 @@
       (cont.concluido ? '<span><b>' + cont.concluido + '</b> ' + plural(cont.concluido, 'concluído', 'concluídos') + '</span>' : '') + '</div></div>' +
       (lista.length ? '<div class="adv-tools"><div class="chips" id="advChips" role="group" aria-label="Filtrar processos">' + chips + '</div>' +
         (lista.length > 4 ? '<input type="search" id="advQ" placeholder="Buscar protocolo ou referência" aria-label="Buscar processo">' : '') +
-        '<div class="adv-open"><button type="button" class="linkbtn" id="advAll">Abrir todos</button><button type="button" class="linkbtn" id="advNone">Fechar todos</button></div></div>' +
+        '<div class="adv-open"><button type="button" class="linkbtn" id="advAll">Abrir todos</button><button type="button" class="linkbtn" id="advNone">Fechar todos</button><button type="button" class="linkbtn" data-act="print">Imprimir ou salvar em PDF</button></div></div>' +
         '<ul class="plist" id="advList">' + itens + '</ul><p class="adv-empty" id="advEmpty" hidden>Nenhum processo com esse filtro.</p>' :
         '<p class="note" style="margin:12px 16px">Nenhum processo está ligado a este código no momento.</p>') + '</div>';
   }
@@ -176,6 +179,58 @@
     if (n) n.addEventListener('click', function () { setAll(false); });
   }
 
+  /* ---------- imprimir, copiar link, lembrar neste aparelho ---------- */
+  var LS = 'central_protocolo';
+  function lsGet() { try { return localStorage.getItem(LS) || ''; } catch (e) { return ''; } }
+  function lsSet(v) { try { if (v) localStorage.setItem(LS, v); else localStorage.removeItem(LS); } catch (e) {} }
+  function printHead(txt) {
+    var h = $('#printHead'); if (!h) return;
+    var d = new Date();
+    h.innerHTML = '<b>Registro de Imóveis de Itararé</b><br>Acompanhamento de usucapião extrajudicial · ' + esc(txt) + '<br>Consulta feita em ' + fmtDT(d.toISOString()) + '. Documento informativo, sem valor de certidão.';
+  }
+  var reopen = [];
+  window.addEventListener('beforeprint', function () {
+    reopen = [];
+    document.querySelectorAll('.pitem details').forEach(function (x) { if (!x.open) { reopen.push(x); x.open = true; } });
+  });
+  window.addEventListener('afterprint', function () { reopen.forEach(function (x) { x.open = false; }); reopen = []; });
+  function flash(btn, txt) { var o = btn.textContent; btn.textContent = txt; setTimeout(function () { btn.textContent = o; }, 2500); }
+  function bindActions(out, proto) {
+    out.querySelectorAll('[data-act]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var a = b.dataset.act;
+        if (a === 'print') window.print();
+        else if (a === 'copy') {
+          var url = location.origin + '/?p=' + encodeURIComponent(proto);
+          if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { flash(b, 'Link copiado'); }, function () { flash(b, 'Copie pelo endereço do navegador'); }); else flash(b, 'Copie pelo endereço do navegador');
+        } else if (a === 'save') {
+          lsSet(proto); flash(b, 'Guardado! Na próxima visita aparece um atalho'); showResume();
+        }
+      });
+    });
+  }
+  function showResume() {
+    var el = $('#resume'); if (!el) return;
+    var p = lsGet();
+    if (!p || !/^[0-9]{1,12}$/.test(p)) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="resume"><span>Acompanhando o protocolo <b>' + esc(p) + '</b></span><button type="button" class="btn sm primary" id="resOpen">Ver agora</button><button type="button" class="linkbtn" id="resForget">Esquecer</button></div>' +
+      '<p class="note" style="margin-top:6px">Dica: no celular, use o menu do navegador e escolha “Adicionar à tela inicial”.</p>';
+    $('#resOpen').addEventListener('click', function () { $('#pubProto').value = p; consultar(p); });
+    $('#resForget').addEventListener('click', function () { lsSet(''); showResume(); });
+  }
+
+  /* tema e tamanho da letra */
+  (function () {
+    if (!window.CENTRAL_PREFS) return;
+    var bar = document.createElement('div'); bar.className = 'prefbar';
+    var bt = document.createElement('button'), bf = document.createElement('button');
+    bt.type = bf.type = 'button';
+    var upd = function () { bt.textContent = window.CENTRAL_PREFS.label('tema').replace('Tema: ', 'Tema ') ; bf.textContent = 'Aa ' + window.CENTRAL_PREFS.label('fonte').replace('Letra: ', ''); };
+    bt.onclick = function () { window.CENTRAL_PREFS.cycle('tema'); upd(); };
+    bf.onclick = function () { window.CENTRAL_PREFS.cycle('fonte'); upd(); };
+    upd(); bar.appendChild(bt); bar.appendChild(bf); document.body.appendChild(bar);
+  })();
+
   var busy = false;
   function consultar(raw) {
     var out = $('#out'), n = String(raw || '').replace(/\s+/g, '');
@@ -200,6 +255,8 @@
         return;
       }
       out.innerHTML = render(r.data, fases);
+      bindActions(out, r.data.protocolo);
+      printHead('Protocolo ' + r.data.protocolo);
       out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }).catch(function () {
       out.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>';
@@ -235,6 +292,8 @@
       if (!r.data) { out.innerHTML = '<div class="notfound">Código não encontrado ou desativado. Confira o código ou procure o cartório.</div>'; return; }
       out.innerHTML = renderAdv(r.data, fases);
       bindAdv(out);
+      bindActions(out, null);
+      printHead('Área do advogado: ' + r.data.nome);
       out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }).catch(function () {
       out.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>';
@@ -250,5 +309,5 @@
 
   // Link direto, como o do e-mail: /?p=52474
   var q = new URLSearchParams(location.search).get('p');
-  if (q) { $('#pubProto').value = q; consultar(q); }
+  if (q) { $('#pubProto').value = q; consultar(q); } else showResume();
 })();

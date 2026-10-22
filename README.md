@@ -101,3 +101,10 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 ## Manual dos escreventes
 
 `docs/Manual-Escreventes.pdf` (guia rápido de 2 páginas), gerado por `docs/gerar_manual.py`. **Sempre que uma função do painel mudar, atualize o texto e os campos `VERSAO` e `DATA` no script e rode `python3 docs/gerar_manual.py`**, depois envie o PDF novo à equipe.
+
+## Melhorias de uso (v1.2)
+
+- **Painel:** filtros rápidos e filtros salvos (neste navegador), selos amarelo/vermelho nos cartões, aviso "Dados a preencher", seleção em lote (atribuir/mover), **Desfazer** após mover de fase ou atribuir, importação de planilha (CSV ou colar do Excel; botão "Importar planilha"), busca global (`/` ou Ctrl+K) e atalhos (`N`, `M`, `P`, `Q`, `?`), tour no primeiro acesso, prévia do e-mail também em observações e prazos, tema claro/escuro e tamanho da letra (`assets/prefs.js`).
+- **Consulta pública:** "O que isso significa" e "O que você precisa fazer agora" por fase (colunas `fases.significado` e `fases.acao`, editáveis em Ajustes → Fases), imprimir/salvar em PDF, copiar link, lembrar o protocolo no aparelho, `manifest.webmanifest` (adicionar à tela inicial), tema e letra.
+- **E-mails com atraso de 45 s:** `emails_enviados.liberar_em` (gatilho `private.atrasar_email`) e a função `reservar_emails_v4` dão tempo para o Desfazer. A função de e-mails usa a v4.
+- **SQL manual:** `supabase/manual/10_...sql` (registro do que foi aplicado automaticamente) e `11_desfazer_movimento.sql` (**precisa ser colado no SQL Editor**: o conector bloqueia funções que apagam dados). Sem o arquivo 11, o botão Desfazer avisa que ainda não foi ativado.

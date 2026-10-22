@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.1"
+VERSAO = "1.2"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -44,7 +44,8 @@ story.append(sec("2. O quadro", [
     "Cada <b>coluna</b> é uma fase; cada <b>cartão</b> é um processo. Clique no cartão para abrir os detalhes.",
     "<b>Arraste o cartão</b> para outra coluna para mudar de fase. Abre uma janela: escreva uma <b>mensagem ao requerente</b> (opcional; há mensagens prontas), informe o prazo se for edital, e confirme. No celular, segure o cartão um instante antes de arrastar.",
     "Arrastar dentro da mesma coluna só muda a ordem, sem avisar ninguém.",
-    "No topo: busca (protocolo, nome, imóvel, matrícula, advogado), filtro por escrevente e <b>“Só os que pedem atenção”</b> (prazo perto do fim, vencido ou parado há mais de 30 dias).",
+    "Acima do quadro: filtro por escrevente e <b>filtros rápidos</b> (só os meus, parados há 15+ dias, pedem atenção, dados a preencher). Dá para <b>salvar</b> um filtro seu. Cartões com borda amarela ou vermelha estão parados ou com prazo perto do fim.",
+    "Se errar ao mover, use <b>Desfazer</b> (aparece por alguns segundos). O e-mail só sai cerca de 1 minuto depois, por isso dá tempo.",
 ]))
 story.append(sec("3. Novo processo", [
     "Botão <b>Novo processo</b>. Protocolo: só números (ex.: 52474). Preencha nome e e-mail do requerente; outros requerentes entram em “Outros e-mails”.",
@@ -68,8 +69,15 @@ story.append(sec("6. Advogados com vários processos", [
     f"Ele digita o código em <b>{URL}</b>, na opção “Tenho mais de um processo”, e acompanha todos de uma vez.",
     "Vincule o advogado em cada processo (campo “Advogado / representante”).",
 ]))
-story.append(sec("7. O cliente consulta assim", [
-    f"Em <b>{URL}</b>, digita só o <b>número do protocolo</b> e vê a linha do tempo, os prazos e as mensagens. Nome, e-mail e imóvel nunca aparecem ali.",
+story.append(sec("7. Ganhar tempo", [
+    "<b>Buscar em tudo:</b> aperte <b>/</b> (ou Ctrl+K) em qualquer tela. Outros atalhos: <b>N</b> novo processo, <b>M</b> só os meus, <b>P</b> prazos, <b>?</b> ajuda.",
+    "<b>Selecionar vários:</b> marque cartões e mude o responsável ou a fase de todos de uma vez (com opção de Desfazer).",
+    "<b>Importar planilha:</b> botão no quadro. Aceita CSV ou células coladas do Excel (baixe o modelo). Só o protocolo é obrigatório; o que faltar fica como <b>“Dados a preencher”</b>. Os e-mails de aviso vêm desmarcados.",
+    "<b>Aparência:</b> botões no topo (tema claro/escuro e tamanho da letra). <b>?</b> reabre o tour de boas-vindas.",
+]))
+story.append(sec("8. O cliente consulta assim", [
+    f"Em <b>{URL}</b>, digita só o <b>número do protocolo</b> e vê a linha do tempo, os prazos e as mensagens, com a explicação “o que isso significa” e “o que fazer agora” (você edita esses textos em Ajustes → Fases). Nome, e-mail e imóvel nunca aparecem ali.",
+    "Ele pode <b>imprimir ou salvar em PDF</b> o andamento e <b>lembrar o protocolo</b> no aparelho.",
 ]))
 
 av = Table([[P("<b>Cuidados importantes</b><br/>"

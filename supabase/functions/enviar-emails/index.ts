@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
   });
   const corpo = await req.json().catch(() => ({}));
   if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
-  const { data, error } = await sb.rpc("reservar_emails_v3", { p_limite: 20 });
+  const { data, error } = await sb.rpc("reservar_emails_v4", { p_limite: 20 });
   if (error) return json({ erro: error.message }, 500);
 
   let enviados = 0, falhas = 0;

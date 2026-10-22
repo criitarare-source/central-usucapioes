@@ -35,7 +35,8 @@
   /* ---------- estado ---------- */
   function freshState() { return { me: null, fases: [], equipe: [], procs: [], advs: [], msgs: [], externos: [], prazos: [], view: 'quadro', sub: 'fases' }; }
   var S = freshState();
-  var F = { q: '', resp: 'all', att: false, tipo: '' };
+  var F = { q: '', resp: 'all', att: false, tipo: '', mine: false, stall: 0, prov: false };
+  var SEL = { on: false, ids: {} };
   var dragging = false, needReload = false, channel = null, recovering = false;
 
   var visFases = function () { return S.fases.filter(function (f) { return !f.oculta; }); };
@@ -65,6 +66,8 @@
   var avatar = function (id) { var n = userName(id); return '<span class="av" style="--i:' + (userIdx(id) % 4) + '" aria-hidden="true">' + (id ? esc(initials(n)) : '?') + '</span>'; };
   var isOficial = function () { return S.me && S.me.papel === 'oficial'; };
   var byId = function (id) { return S.procs.find(function (p) { return p.id === id; }); };
+  var isProv = function (p) { return /\.invalid$/i.test(p.requerente_email || '') || /^a preencher/i.test(p.requerente_nome || ''); };
+  var selCount = function () { return Object.keys(SEL.ids).length; };
   var fmtCode = function (c) { return String(c).replace(/(.{4})(?=.)/g, '$1-'); };
 
   function phaseColor(id) {
@@ -76,10 +79,18 @@
   }
 
   var toastT;
-  function toast(t) {
+  function toast(t, act, ms) {
     var el = $('#toast'); el.textContent = t; el.hidden = false;
-    clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; }, 5000);
+    if (act) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'toast-act'; b.textContent = act.label;
+      b.onclick = function () { clearTimeout(toastT); el.hidden = true; act.fn(); };
+      el.appendChild(b);
+    }
+    clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; }, ms || (act ? 30000 : 5000));
   }
+  /* preferências do aparelho (tema, tamanho da letra, filtros salvos, tour) */
+  function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   function errText(e) {
     var m = (e && e.message) || 'Erro inesperado.';
     if (e && e.code === '23505') return 'Já existe um processo com este protocolo.';
@@ -226,7 +237,7 @@
         return sb.auth.mfa.getAuthenticatorAssuranceLevel().then(function (a) {
           if (a.data && a.data.nextLevel === 'aal2' && a.data.currentLevel !== 'aal2') { showMfa(); return; }
           $('#root').innerHTML = '<div class="loading">Carregando processos…</div>';
-          return loadAll().then(function (ok) { if (ok) { renderApp(); subscribe(); } });
+          return loadAll().then(function (ok) { if (ok) { renderApp(); subscribe(); maybeTour(); } });
         });
       });
     });
@@ -287,10 +298,16 @@
       '<img class="logo" src="' + LOGO + '" alt="Registro de Imóveis de Itararé">' +
       '<div class="brand"><h1>Central de Usucapiões</h1><p>Usucapião extrajudicial · Itararé</p></div>' +
       '<nav class="tabs" role="tablist" aria-label="Seções">' + tabs + '</nav>' +
-      '<div class="who2"><span>' + esc(S.me.nome) + (isOficial() ? ' · Oficial' : '') + '</span><a href="/" target="_blank" rel="noopener">Página do cliente</a><button class="btn" id="bOut">Sair</button></div>' +
+      '<div class="who2"><button type="button" class="btn hbtn" id="bGlobal" title="Buscar em todos os processos (atalho: /)">' + ICON.search + '<span>Buscar</span><kbd>/</kbd></button><button type="button" class="btn hbtn" id="bTema" title="Mudar o tema"></button><button type="button" class="btn hbtn" id="bFonte" title="Mudar o tamanho da letra"></button><button type="button" class="btn hbtn" id="bAjuda" title="Atalhos e tour" aria-label="Ajuda">?</button><span class="who-n">' + esc(S.me.nome) + (isOficial() ? ' · Oficial' : '') + '</span><a href="/" target="_blank" rel="noopener">Página do cliente</a><button class="btn" id="bOut">Sair</button></div>' +
       '</div></header><div id="body" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>';
     $('#bOut').onclick = signOut;
-    document.querySelectorAll('.tab').forEach(function (t) { t.onclick = function () { S.view = t.dataset.view; renderApp(); }; });
+    $('#bGlobal').onclick = openGlobalSearch;
+    $('#bAjuda').onclick = openHelp;
+    var prefBtns = function () { $('#bTema').textContent = window.CENTRAL_PREFS.label('tema').replace('Tema: ', 'Tema ') ; $('#bFonte').textContent = 'Aa ' + window.CENTRAL_PREFS.label('fonte').replace('Letra: ', ''); };
+    prefBtns();
+    $('#bTema').onclick = function () { window.CENTRAL_PREFS.cycle('tema'); prefBtns(); };
+    $('#bFonte').onclick = function () { window.CENTRAL_PREFS.cycle('fonte'); prefBtns(); };
+    document.querySelectorAll('.tab').forEach(function (t) { t.onclick = function () { S.view = t.dataset.view; SEL.on = false; SEL.ids = {}; renderApp(); }; });
     var v = S.view;
     if (v === 'equipe' && isOficial()) renderEquipe();
     else if (v === 'emails' && isOficial()) renderEmails();
@@ -322,24 +339,69 @@
     else if (F.resp !== 'all' && respKey(p) !== F.resp) return false;
     if (F.tipo && p.tipo_usucapiao !== F.tipo) return false;
     if (F.att && !attention(p) && p.fase_id !== 3) return false;
+    if (F.mine && respKey(p) !== 'u:' + S.me.id) return false;
+    if (F.stall && (p.fase_id >= 8 || daysSince(p.fase_desde) < F.stall)) return false;
+    if (F.prov && !isProv(p)) return false;
     if (F.q && searchText(p).indexOf(F.q.toLowerCase()) < 0) return false;
     return true;
   }
 
+  function filtroAtivo() { return F.q || F.resp !== 'all' || F.att || F.tipo || F.mine || F.stall || F.prov; }
   function renderQuadro() {
     var tipos = Array.from(new Set(S.procs.map(function (p) { return p.tipo_usucapiao; }).filter(Boolean))).sort();
+    var salvos = lsGet('central_filtros', []);
     $('#body').innerHTML =
-      '<div class="toolbar gut"><div class="search">' + ICON.search + '<input id="q" type="search" placeholder="Buscar protocolo, nome, imóvel, matrícula, advogado" aria-label="Buscar processo" value="' + esc(F.q) + '"></div>' +
+      '<div class="toolbar gut"><div class="search">' + ICON.search + '<input id="q" type="search" placeholder="Filtrar o quadro (protocolo, nome, imóvel…)" aria-label="Filtrar processos do quadro" value="' + esc(F.q) + '"></div>' +
       '<div class="chips" id="resps" role="group" aria-label="Filtrar por escrevente"></div>' +
       (tipos.length ? '<select id="fTipo" class="fsel" aria-label="Filtrar por tipo de usucapião"><option value="">Todos os tipos</option>' + tipos.map(function (t) { return '<option' + (F.tipo === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>' : '') +
-      '<button type="button" class="fchip plain" id="fAtt" aria-pressed="' + F.att + '">Só os que pedem atenção</button>' +
-      '<button type="button" class="btn primary" id="bNew">' + ICON.plus + 'Novo processo</button></div>' +
-      '<div class="stats gut" id="stats"></div><div class="board gut" id="board" aria-label="Quadro de processos"></div>';
-    $('#q').oninput = function (e) { F.q = e.target.value.trim(); renderBoard(); };
-    if ($('#fTipo')) $('#fTipo').onchange = function (e) { F.tipo = e.target.value; renderBoard(); };
-    $('#fAtt').onclick = function () { F.att = !F.att; $('#fAtt').setAttribute('aria-pressed', F.att); renderBoard(); };
+      '<div class="tb-right"><button type="button" class="btn" id="bSel" aria-pressed="' + SEL.on + '">' + (SEL.on ? 'Sair da seleção' : 'Selecionar vários') + '</button>' +
+      '<button type="button" class="btn" id="bImp">Importar planilha</button>' +
+      '<button type="button" class="btn primary" id="bNew">' + ICON.plus + 'Novo processo</button></div></div>' +
+      '<div class="toolbar quick gut" id="quick" role="group" aria-label="Filtros rápidos"></div>' +
+      '<div class="stats gut" id="stats"></div><div class="board gut" id="board" aria-label="Quadro de processos"></div><div id="selbar" class="selbar" hidden></div>';
+    $('#q').oninput = function (e) { F.q = e.target.value.trim(); renderBoard(); renderQuick(); };
+    if ($('#fTipo')) $('#fTipo').onchange = function (e) { F.tipo = e.target.value; renderBoard(); renderQuick(); };
     $('#bNew').onclick = openNew;
-    renderResps(); renderStats(); renderBoard();
+    $('#bImp').onclick = openImport;
+    $('#bSel').onclick = function () { SEL.on = !SEL.on; SEL.ids = {}; renderQuadro(); };
+    renderResps(); renderStats(); renderQuick(); renderBoard(); renderSelBar();
+  }
+
+  function renderQuick() {
+    var el = $('#quick'); if (!el) return;
+    var salvos = lsGet('central_filtros', []);
+    var pre = [
+      ['mine', 'Só os meus', F.mine], ['stall', 'Parados há 15+ dias', !!F.stall], ['att', 'Pedem atenção', F.att], ['prov', 'Dados a preencher', F.prov]
+    ];
+    el.innerHTML = '<span class="muted small">Filtros rápidos:</span>' + pre.map(function (c) {
+      return '<button type="button" class="fchip plain" data-qf="' + c[0] + '" aria-pressed="' + c[2] + '">' + c[1] + '</button>';
+    }).join('') +
+      (salvos.length ? '<select id="fSalvos" class="fsel" aria-label="Meus filtros salvos"><option value="">Meus filtros salvos…</option>' + salvos.map(function (f, i) { return '<option value="' + i + '">' + esc(f.nome) + '</option>'; }).join('') + '</select>' : '') +
+      (filtroAtivo() ? '<button type="button" class="linkbtn" id="fSave">Salvar este filtro</button><button type="button" class="linkbtn" id="fClear">Limpar filtros</button>' : '');
+    el.querySelectorAll('[data-qf]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.qf;
+        if (k === 'mine') F.mine = !F.mine; else if (k === 'stall') F.stall = F.stall ? 0 : 15; else if (k === 'att') F.att = !F.att; else if (k === 'prov') F.prov = !F.prov;
+        renderQuick(); renderBoard();
+      };
+    });
+    if ($('#fSalvos')) $('#fSalvos').onchange = function (e) {
+      var f = salvos[+e.target.value]; if (!f) return;
+      F.q = f.q || ''; F.resp = f.resp || 'all'; F.att = !!f.att; F.tipo = f.tipo || ''; F.mine = !!f.mine; F.stall = f.stall || 0; F.prov = !!f.prov;
+      renderQuadro();
+    };
+    if ($('#fClear')) $('#fClear').onclick = function () { F = { q: '', resp: 'all', att: false, tipo: '', mine: false, stall: 0, prov: false }; renderQuadro(); };
+    if ($('#fSave')) $('#fSave').onclick = function () {
+      openGen('<h2>Salvar este filtro</h2><div class="muted">Fica guardado neste navegador. Aparece em “Meus filtros salvos”.</div><label for="fsNome">Nome do filtro</label><input type="text" id="fsNome" maxlength="40" placeholder="Ex.: Meus parados"><div class="err" id="fsErr" role="alert"></div><div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" id="fsOk">Salvar</button></div>', function (d) {
+        $('#fsNome').focus();
+        $('#fsOk').onclick = function () {
+          var n = $('#fsNome').value.trim(); if (n.length < 2) return ($('#fsErr').textContent = 'Dê um nome ao filtro.');
+          var l = lsGet('central_filtros', []).filter(function (x) { return x.nome !== n; });
+          l.push({ nome: n, q: F.q, resp: F.resp, att: F.att, tipo: F.tipo, mine: F.mine, stall: F.stall, prov: F.prov });
+          lsSet('central_filtros', l); d.close(); toast('Filtro “' + n + '” salvo.'); renderQuick();
+        };
+      });
+    };
   }
 
   function renderResps() {
@@ -347,7 +409,7 @@
       approved().map(function (u) { return '<button type="button" class="fchip" data-resp="u:' + u.id + '" aria-pressed="' + (F.resp === 'u:' + u.id) + '">' + avatar(u.id) + esc(u.nome) + '</button>'; }).join('') +
       S.externos.filter(function (x) { return x.ativo || S.procs.some(function (p) { return p.responsavel_externo_id === x.id; }); }).map(function (x) { return '<button type="button" class="fchip" data-resp="x:' + x.id + '" aria-pressed="' + (F.resp === 'x:' + x.id) + '">' + avatarKey('x:' + x.id) + esc(x.nome) + '</button>'; }).join('') +
       '<button type="button" class="fchip plain" data-resp="none" aria-pressed="' + (F.resp === 'none') + '">Sem responsável</button>';
-    document.querySelectorAll('#resps .fchip').forEach(function (b) { b.onclick = function () { F.resp = b.dataset.resp; renderResps(); renderBoard(); }; });
+    document.querySelectorAll('#resps .fchip').forEach(function (b) { b.onclick = function () { F.resp = b.dataset.resp; renderResps(); renderBoard(); renderQuick(); }; });
   }
 
   function renderStats() {
@@ -357,8 +419,9 @@
     var aw = S.procs.filter(function (p) { return p.fase_id === 3; }).length;
     var done = S.procs.filter(function (p) { return p.fase_id === 8; }).length;
     var sem = act.filter(function (p) { return !respKey(p); }).length;
+    var prv = S.procs.filter(isProv).length;
     var st = function (n, l, a) { return '<div class="stat ' + (a && n ? 'alert' : '') + '"><b>' + n + '</b><span>' + l + '</span></div>'; };
-    $('#stats').innerHTML = st(act.length, 'em andamento') + st(venc, 'prazos vencendo em 15 dias', 1) + st(par, 'parados há mais de 30 dias', 1) + st(sem, 'sem escrevente responsável', 1) + st(aw, 'aguardando o requerente') + st(done, 'concluídos');
+    $('#stats').innerHTML = st(act.length, 'em andamento') + st(venc, 'prazos vencendo em 15 dias', 1) + st(par, 'parados há mais de 30 dias', 1) + st(sem, 'sem escrevente responsável', 1) + st(prv, 'com dados a preencher', 1) + st(aw, 'aguardando o requerente') + st(done, 'concluídos');
   }
 
   function cardHTML(p) {
@@ -373,11 +436,14 @@
     if (p.fase_id === 5 && !pzs.some(function (z) { return z.tipo === 'edital'; })) tags.push('<span class="chip">Prazo do edital não informado</span>');
     if (a && !pzs.length) tags.push('<span class="chip ' + a.c + '">' + esc(a.t) + '</span>');
     var age = daysSince(p.fase_desde);
-    return '<article class="card" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
-      '<div class="card-top"><span class="proto">' + esc(p.protocolo) + '</span><span class="grip" aria-hidden="true">' + ICON.grip + '</span></div>' +
+    if (isProv(p)) tags.unshift('<span class="chip prov">Dados a preencher</span>');
+    var nivel = p.fase_id >= 8 ? '' : (a && a.c === 'bad') || (age > 60 && p.fase_id !== 3) ? 'lv-bad' : a || (age > 15 && p.fase_id !== 3) ? 'lv-warn' : '';
+    var ageCls = p.fase_id >= 8 ? '' : p.fase_id !== 3 && age > 30 ? ' bad' : p.fase_id !== 3 && age > 15 ? ' warn' : '';
+    return '<article class="card ' + nivel + (SEL.ids[p.id] ? ' is-sel' : '') + '" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
+      '<div class="card-top">' + (SEL.on ? '<span class="selbox" aria-hidden="true">' + (SEL.ids[p.id] ? '✓' : '') + '</span>' : '') + '<span class="proto">' + esc(p.protocolo) + '</span><span class="grip" aria-hidden="true">' + ICON.grip + '</span></div>' +
       '<div class="nome">' + esc(p.requerente_nome) + '</div><div class="imovel">' + esc(p.referencia || p.imovel) + '</div>' +
       (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
-      '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
+      '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age' + ageCls + '" title="Tempo nesta fase">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
   }
 
   var sortables = [], lastDrag = 0;
@@ -415,12 +481,102 @@
     });
   }
 
+  /* ---------- seleção em lote ---------- */
+  function visibleIds() { return S.procs.filter(visible).map(function (p) { return p.id; }); }
+  function toggleSel(id) {
+    if (SEL.ids[id]) delete SEL.ids[id]; else SEL.ids[id] = 1;
+    var el = document.querySelector('.card[data-id="' + id + '"]');
+    if (el) { el.classList.toggle('is-sel', !!SEL.ids[id]); var b = el.querySelector('.selbox'); if (b) b.textContent = SEL.ids[id] ? '✓' : ''; }
+    renderSelBar();
+  }
+  function renderSelBar() {
+    var bar = $('#selbar'); if (!bar) return;
+    var n = selCount();
+    if (!SEL.on) { bar.hidden = true; return; }
+    bar.hidden = false;
+    bar.innerHTML = '<b>' + n + ' ' + plural(n, 'selecionado', 'selecionados') + '</b><button type="button" class="linkbtn" id="sbAll">Selecionar os ' + visibleIds().length + ' visíveis</button>' +
+      '<select id="sbResp" aria-label="Atribuir a"' + (n ? '' : ' disabled') + '><option value="__">Atribuir a…</option><option value="">Sem responsável</option>' +
+      approved().map(function (u) { return '<option value="u:' + u.id + '">' + esc(u.nome) + '</option>'; }).join('') +
+      S.externos.filter(function (x) { return x.ativo; }).map(function (x) { return '<option value="x:' + x.id + '">' + esc(x.nome) + '</option>'; }).join('') + '</select>' +
+      '<button type="button" class="btn" id="sbMove"' + (n ? '' : ' disabled') + '>Mover de fase…</button><button type="button" class="btn ghost" id="sbCancel">Cancelar</button>';
+    $('#sbAll').onclick = function () { visibleIds().forEach(function (id) { SEL.ids[id] = 1; }); renderBoard(); renderSelBar(); };
+    $('#sbCancel').onclick = function () { SEL.on = false; SEL.ids = {}; renderQuadro(); };
+    $('#sbResp').onchange = function (e) { var v = e.target.value; if (v === '__') return; batchAssign(v); e.target.value = '__'; };
+    $('#sbMove').onclick = batchMoveDialog;
+  }
+  function batchAssign(key) {
+    var ids = Object.keys(SEL.ids).map(Number), prev = {};
+    ids.forEach(function (id) { var k = respKey(byId(id)); (prev[k] = prev[k] || []).push(id); });
+    var pl = respPayload(key);
+    sb.from('processos').update(pl).in('id', ids).then(function (r) {
+      if (r.error) return toast(errText(r.error));
+      ids.forEach(function (id) { var p = byId(id); p.responsavel_id = pl.responsavel_id; p.responsavel_externo_id = pl.responsavel_externo_id; });
+      SEL.ids = {}; renderStats(); renderBoard(); renderResps(); renderSelBar();
+      toast(ids.length + ' ' + plural(ids.length, 'processo agora está', 'processos agora estão') + ' com ' + keyName(key) + '.', {
+        label: 'Desfazer', fn: function () {
+          Promise.all(Object.keys(prev).map(function (k) { return sb.from('processos').update(respPayload(k)).in('id', prev[k]); })).then(function () { toast('Atribuição desfeita.'); reloadProcs(); });
+        }
+      }, 20000);
+    });
+  }
+  function batchMoveDialog() {
+    var ids = Object.keys(SEL.ids).map(Number); if (!ids.length) return;
+    var procs = ids.map(byId).filter(Boolean);
+    var comEmail = procs.filter(function (p) { return !isProv(p); }).length;
+    openGen('<h2>Mover ' + procs.length + ' ' + plural(procs.length, 'processo', 'processos') + '</h2><div class="muted">Todos vão para a mesma fase, com a mesma mensagem.</div>' +
+      '<label for="bmFase">Nova fase</label><select id="bmFase">' + visFases().map(function (f) { return '<option value="' + f.id + '">' + esc(f.nome) + '</option>'; }).join('') + '</select>' +
+      '<label for="bmMsg">Mensagem para os requerentes <span class="opt">(opcional)</span></label><textarea id="bmMsg" rows="3" maxlength="600"></textarea>' +
+      '<label class="check"><input type="checkbox" id="bmMail"' + (comEmail ? ' checked' : '') + '> Enviar e-mail aos requerentes (' + comEmail + ' ' + plural(comEmail, 'processo tem', 'processos têm') + ' e-mail válido)</label>' +
+      '<p class="hint">Quem estiver com dados provisórios (e-mail “pendente”) não recebe e-mail. O prazo do edital deve ser informado depois, em cada processo.</p>' +
+      '<div class="err" id="bmErr" role="alert"></div><div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" id="bmOk">Mover</button></div>', function (d) {
+        $('#bmOk').onclick = function () {
+          var to = +$('#bmFase').value, msg = $('#bmMsg').value.trim().slice(0, 600) || null, mail = $('#bmMail').checked;
+          var alvo = procs.filter(function (p) { return p.fase_id !== to; });
+          if (!alvo.length) return ($('#bmErr').textContent = 'Todos já estão nessa fase.');
+          $('#bmOk').disabled = true; $('#bmOk').textContent = 'Movendo…';
+          var feitos = [], erros = 0;
+          alvo.reduce(function (pr, p) {
+            return pr.then(function () {
+              return sb.rpc('mover_processo', { p_id: p.id, p_fase: to, p_mensagem: msg, p_prazo: null, p_email: mail, p_ord: null }).then(function (r) {
+                if (r.error) erros++; else feitos.push({ hist: r.data.id, ord: p.ord });
+              });
+            });
+          }, Promise.resolve()).then(function () {
+            d.close(); SEL.ids = {};
+            reloadProcs().then(function () { renderSelBar(); });
+            toast(feitos.length + ' ' + plural(feitos.length, 'processo movido', 'processos movidos') + ' para “' + faseById(to).nome + '”.' + (erros ? ' ' + erros + ' com erro.' : ''), feitos.length ? {
+              label: 'Desfazer', fn: function () { desfazerVarios(feitos); }
+            } : null);
+          });
+        };
+      });
+  }
+  function desfazerErro(e) {
+    if (e && (e.code === 'PGRST202' || /Could not find the function/i.test(e.message || ''))) return 'O botão Desfazer ainda não foi ativado no banco de dados. Avise o administrador.';
+    return errText(e);
+  }
+  function desfazerVarios(lista) {
+    var ok = 0, falha = null;
+    lista.reduce(function (pr, it) {
+      return pr.then(function () {
+        return sb.rpc('desfazer_movimento', { p_hist_id: it.hist, p_ord: it.ord }).then(function (r) { if (r.error) falha = r.error; else ok++; });
+      });
+    }, Promise.resolve()).then(function () {
+      reloadProcs();
+      toast(ok ? ok + ' ' + plural(ok, 'movimentação desfeita', 'movimentações desfeitas') + '.' + (falha ? ' Algumas não puderam ser desfeitas: ' + desfazerErro(falha) : '') : desfazerErro(falha));
+    });
+  }
+
   /* ---------- atribuir responsável (com ou sem conta) ---------- */
   function setResponsavel(p, key) {
+    var prevKey = respKey(p);
     return sb.from('processos').update(respPayload(key)).eq('id', p.id).then(function (r) {
       if (r.error) { toast(errText(r.error)); return false; }
       var pl = respPayload(key); p.responsavel_id = pl.responsavel_id; p.responsavel_externo_id = pl.responsavel_externo_id;
-      toast(key ? 'Processo ' + p.protocolo + ' agora está com ' + keyName(key) + '.' : 'Processo ' + p.protocolo + ' ficou sem responsável.');
+      var antes = prevKey;
+      toast(key ? 'Processo ' + p.protocolo + ' agora está com ' + keyName(key) + '.' : 'Processo ' + p.protocolo + ' ficou sem responsável.', antes === key ? null : {
+        label: 'Desfazer', fn: function () { setResponsavel(p, antes).then(function () { var dd = $('#dDetail'); if (dd.open && +dd.dataset.id === p.id) fillDetail(p.id); }); }
+      }, 15000);
       if ($('#stats')) { renderStats(); renderBoard(); renderResps(); }
       return true;
     });
@@ -501,6 +657,13 @@
       '<p class="muted small" style="margin:0">Você recebe um e-mail a cada mudança de etapa. Para consultar quando quiser, use o protocolo ' + esc(p.protocolo) + ' na página de acompanhamento do cartório.</p></div></div>';
   }
 
+  function mailGeneric(p, rotulo, titulo, msg, enviar) {
+    if (!enviar) return '<p class="muted small" style="margin:6px 0 0">Nenhum e-mail será enviado; o texto só aparece na linha do tempo da consulta.</p>';
+    return '<div class="mail"><div class="mail-meta"><div><b>De:</b> Registro de Imóveis de Itararé</div><div><b>Para:</b> ' + esc(destinatariosTxt(p)) + '</div><div><b>Assunto:</b> Usucapião ' + esc(p.protocolo) + ': ' + esc(titulo.toLowerCase()) + '</div></div>' +
+      '<div class="mail-body"><p>Olá! O andamento do seu pedido de usucapião extrajudicial foi atualizado.</p><p class="mail-stage"><span>' + esc(rotulo) + '</span><strong>' + esc(titulo) + '</strong><em>' + fmtDate(new Date()) + '</em></p>' +
+      (msg ? '<blockquote>' + esc(msg) + '</blockquote>' : '<p class="muted small">(escreva o texto acima para ver aqui)</p>') +
+      '<p><span class="btn primary sm" style="display:inline-block">Acompanhar meu pedido</span></p></div></div>';
+  }
   function openMove(id, to, ord) {
     var p = byId(id); if (!p || p.fase_id === to) { renderBoard(); return; }
     pending = { id: id, to: to, ord: ord };
@@ -536,13 +699,16 @@
     var p = byId(pm.id), to = pm.to, btn = $('#mvOk');
     var msg = $('#mvMsg').value.trim().slice(0, 600);
     var prazo = to === 5 && $('#mvPrazo') && $('#mvPrazo').value ? $('#mvPrazo').value : null;
-    var mail = $('#mvEmail').checked;
+    var mail = $('#mvEmail').checked, ordAntes = p.ord;
     btn.disabled = true;
     sb.rpc('mover_processo', { p_id: pm.id, p_fase: to, p_mensagem: msg || null, p_prazo: prazo, p_email: mail, p_ord: pm.ord }).then(function (r) {
       btn.disabled = false;
       if (r.error) { $('#mvErr').textContent = errText(r.error); return; }
       pending = null; $('#dMove').close();
-      toast('Processo ' + p.protocolo + ' movido para “' + faseById(to).nome + '”.' + (mail ? ' E-mails na fila de envio.' : ''));
+      var hid = r.data && r.data.id;
+      toast('Processo ' + p.protocolo + ' movido para “' + faseById(to).nome + '”.' + (mail ? ' O e-mail sai em cerca de 1 minuto.' : ''), hid ? {
+        label: 'Desfazer', fn: function () { desfazerVarios([{ hist: hid, ord: ordAntes }]); }
+      } : null, 40000);
       reloadProcs();
     });
   }
@@ -600,6 +766,7 @@
       '<div><label for="pzData">Vence em</label><input type="date" id="pzData"></div></div>' +
       '<label for="pzDesc">Descrição <span class="opt">(opcional, ex.: Confrontante Silva)</span></label><input type="text" id="pzDesc" maxlength="120">' +
       '<label class="check"><input type="checkbox" id="pzMail" checked> Avisar o requerente por e-mail</label>' +
+      '<details class="prev"><summary>Ver prévia do e-mail</summary><div id="pzPrev"></div></details>' +
       '<p class="hint">O cliente vê o tipo, a descrição e a data na consulta. Não escreva dados pessoais de terceiros.</p>' +
       '<div class="err" id="pzErr" role="alert"></div><button type="button" class="btn sm primary" id="pzAdd">Adicionar prazo</button></div>';
   }
@@ -621,7 +788,7 @@
         '<label for="dtResp">Com quem está o processo</label><select id="dtResp">' + respOptions(respKey(pa)) + '</select>' +
         '<p class="hint">Pode ser qualquer pessoa, mesmo sem conta no painel.</p>' +
         '<h3>Observação no andamento</h3><label for="dtObs">Aparece na linha do tempo do cliente</label><textarea id="dtObs" rows="2" maxlength="600" placeholder="Ex.: Edital publicado, prazo até 20/12."></textarea>' +
-        '<label class="check"><input type="checkbox" id="dtObsMail"> Avisar o requerente por e-mail</label><div class="err" id="dtObsErr" role="alert"></div><button type="button" class="btn sm" id="dtObsBtn">Registrar no andamento</button>' +
+        '<label class="check"><input type="checkbox" id="dtObsMail"> Avisar o requerente por e-mail</label><details class="prev" id="obPrevBox"><summary>Ver prévia do e-mail</summary><div id="obPrev"></div></details><div class="err" id="dtObsErr" role="alert"></div><button type="button" class="btn sm" id="dtObsBtn">Registrar no andamento</button>' +
         '<h3>Prazos</h3>' + prazosHTML(pzAll) + prazoForm() +
         '<h3>Dados do processo</h3><form id="fDados" novalidate>' +
         '<label for="edProto">Número do protocolo</label><input type="text" id="edProto" inputmode="numeric" maxlength="12" value="' + esc(pa.protocolo) + '">' +
@@ -647,6 +814,15 @@
         '</div></div>';
 
       $('#dtClose').onclick = function () { d.close(); };
+      var obUpd = function () { $('#obPrev').innerHTML = mailGeneric(pa, 'Observação', 'Observação do cartório', $('#dtObs').value.trim(), $('#dtObsMail').checked); };
+      $('#dtObs').addEventListener('input', obUpd); $('#dtObsMail').addEventListener('change', obUpd); obUpd();
+      if ($('#pzTipo')) {
+        var pzUpd = function () {
+          var v = $('#pzData').value, ds = $('#pzDesc').value.trim(), tp = TIPO_PRAZO[$('#pzTipo').value];
+          $('#pzPrev').innerHTML = mailGeneric(pa, 'Atualização', 'Prazo atualizado', tp + ': ' + (ds ? ds + '. ' : '') + 'Vence em ' + (v ? fmtYMD(v) : '__/__/____') + '.', $('#pzMail').checked);
+        };
+        ['pzTipo', 'pzData', 'pzDesc', 'pzMail'].forEach(function (id) { $('#' + id).addEventListener('input', pzUpd); $('#' + id).addEventListener('change', pzUpd); }); pzUpd();
+      }
       d.oninput = function () { d.dataset.dirty = '1'; };
       $('#dtFase').onchange = function (e) { var to = +e.target.value; e.target.value = pa.fase_id; openMove(pa.id, to, null); };
       bindRespSelect($('#dtResp'), respKey(pa), function (k) { setResponsavel(pa, k).then(function () { delete d.dataset.dirty; fillDetail(pa.id); }); });
@@ -777,6 +953,224 @@
       });
     };
     d.showModal(); setTimeout(function () { $('#nwProto').focus(); }, 30);
+  }
+
+  /* ---------- busca global, atalhos e ajuda ---------- */
+  function anyDialogOpen() { return Array.prototype.some.call(document.querySelectorAll('dialog'), function (d) { return d.open; }); }
+  function openGlobalSearch() {
+    if (!S.me) return;
+    var d = $('#dGen');
+    var render = function (q) {
+      var toks = norm(q) ? String(q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).filter(Boolean) : [];
+      var list = !toks.length ? S.procs.slice().sort(function (a, b) { return new Date(b.atualizado_em || 0) - new Date(a.atualizado_em || 0); }).slice(0, 8) :
+        S.procs.filter(function (p) {
+          var txt = (searchText(p) + ' ' + respName(p) + ' ' + faseById(p.fase_id).nome).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+          return toks.every(function (t) { return txt.indexOf(t) >= 0; });
+        }).slice(0, 30);
+      $('#gsList').innerHTML = list.length ? list.map(function (p, i) {
+        return '<li><button type="button" class="gs-item' + (i === 0 ? ' on' : '') + '" data-id="' + p.id + '"><b>' + esc(p.protocolo) + '</b><span class="gs-n">' + esc(p.requerente_nome) + (p.referencia ? ' · ' + esc(p.referencia) : '') + '</span><span class="gs-m">' + esc(faseById(p.fase_id).nome) + ' · ' + esc(respName(p)) + '</span></button></li>';
+      }).join('') : '<li class="muted small" style="padding:10px">Nada encontrado.</li>';
+      d.querySelectorAll('.gs-item').forEach(function (b) { b.onclick = function () { d.close(); openDetail(+b.dataset.id); }; });
+    };
+    openGen('<h2>Buscar processo</h2><input type="search" id="gsQ" placeholder="Protocolo, nome, matrícula, advogado, escrevente…" aria-label="Buscar em todos os processos" autocomplete="off"><ul class="gs-list" id="gsList"></ul><p class="hint">Setas ↑ ↓ para escolher, Enter para abrir, Esc para fechar.</p>', function () {
+      render('');
+      var q = $('#gsQ');
+      q.oninput = function () { render(q.value); };
+      q.onkeydown = function (e) {
+        var items = Array.prototype.slice.call(d.querySelectorAll('.gs-item')); if (!items.length) return;
+        var cur = items.findIndex(function (x) { return x.classList.contains('on'); });
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault(); var n = (cur + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+          items.forEach(function (x, i) { x.classList.toggle('on', i === n); }); items[n].scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter') { e.preventDefault(); if (items[cur]) items[cur].click(); }
+      };
+      setTimeout(function () { q.focus(); }, 20);
+    });
+  }
+  var SHORTCUTS = [['/ ou Ctrl+K', 'Buscar em todos os processos'], ['N', 'Novo processo'], ['M', 'Só os meus processos (Quadro)'], ['P', 'Ir para Prazos'], ['Q', 'Ir para o Quadro'], ['?', 'Mostrar esta ajuda']];
+  function openHelp() {
+    openGen('<h2>Ajuda rápida</h2><table class="tbl keys"><tbody>' + SHORTCUTS.map(function (k) { return '<tr><td><kbd>' + esc(k[0]) + '</kbd></td><td>' + esc(k[1]) + '</td></tr>'; }).join('') + '</tbody></table>' +
+      '<p class="hint">Os atalhos não funcionam enquanto você digita em um campo.</p><div class="m-f"><button type="button" class="btn" id="hpTour">Rever o tour</button><button type="button" class="btn primary" data-close>Fechar</button></div>', function (d) {
+        $('#hpTour').onclick = function () { d.close(); openTour(); };
+      });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (!S.me || !S.me.aprovado || !$('#body')) return;
+    var t = e.target, typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); if (!($('#dGen').open && $('#gsQ'))) { if ($('#dDetail').open) $('#dDetail').close(); openGlobalSearch(); } return; }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey || anyDialogOpen()) return;
+    var k = e.key;
+    if (k === '/') { e.preventDefault(); openGlobalSearch(); }
+    else if (k === '?') { e.preventDefault(); openHelp(); }
+    else if (k === 'n' || k === 'N') { e.preventDefault(); if (S.view !== 'quadro') { S.view = 'quadro'; renderApp(); } openNew(); }
+    else if (k === 'm' || k === 'M') { S.view = 'quadro'; F.mine = true; renderApp(); }
+    else if (k === 'p' || k === 'P') { S.view = 'prazos'; renderApp(); }
+    else if (k === 'q' || k === 'Q') { S.view = 'quadro'; renderApp(); }
+  });
+
+  /* ---------- tour do primeiro acesso ---------- */
+  var TOUR = [
+    ['Bem-vindo à Central de Usucapiões', 'Aqui você acompanha todos os processos do cartório. O requerente consulta só o andamento, digitando o número do protocolo. Este tour leva menos de um minuto.'],
+    ['O quadro', 'Cada coluna é uma fase. Arraste um cartão para a fase seguinte (ou abra o cartão e escolha a fase). Ao mover, você escreve a mensagem para o requerente e pode conferir a prévia do e-mail.'],
+    ['Errou? Desfaça', 'Depois de mover um processo aparece o botão “Desfazer” por alguns segundos. Os e-mails só saem cerca de 1 minuto depois, para dar tempo de corrigir.'],
+    ['Com quem está o processo', 'Clique no nome no pé do cartão para passar o caso a outro escrevente, mesmo quem não tem conta no painel. Em “Selecionar vários” você muda de responsável ou de fase vários cartões de uma vez.'],
+    ['Prazos e observações', 'Dentro do cartão você registra prazos (intimação, edital, exigência) e observações que o requerente vê na linha do tempo. Os cartões ficam amarelos ou vermelhos quando algo está parado ou vencendo.'],
+    ['Buscar e atalhos', 'Aperte / (ou Ctrl+K) em qualquer tela para buscar um processo. Use os filtros rápidos acima do quadro e salve os que você mais usa. Aperte ? para ver todos os atalhos.']
+  ];
+  function openTour() {
+    var i = 0;
+    var draw = function () {
+      var st = TOUR[i];
+      openGen('<div class="tour-n">' + (i + 1) + ' de ' + TOUR.length + '</div><h2>' + esc(st[0]) + '</h2><p class="tour-t">' + esc(st[1]) + '</p><div class="tour-dots" aria-hidden="true">' + TOUR.map(function (_, j) { return '<i class="' + (j === i ? 'on' : '') + '"></i>'; }).join('') + '</div>' +
+        '<div class="m-f"><button type="button" class="btn ghost" id="trSkip">Pular</button>' + (i ? '<button type="button" class="btn" id="trBack">Voltar</button>' : '') + '<button type="button" class="btn primary" id="trNext">' + (i === TOUR.length - 1 ? 'Concluir' : 'Próximo') + '</button></div>', function (d) {
+          var fim = function () { lsSet('central_tour_v1_' + S.me.id, 1); d.close(); };
+          $('#trSkip').onclick = fim;
+          if ($('#trBack')) $('#trBack').onclick = function () { i--; draw(); };
+          $('#trNext').onclick = function () { if (i === TOUR.length - 1) fim(); else { i++; draw(); } };
+          $('#trNext').focus();
+        });
+    };
+    draw();
+  }
+  function maybeTour() { if (S.me && !lsGet('central_tour_v1_' + S.me.id, 0)) setTimeout(function () { if (!anyDialogOpen()) openTour(); }, 600); }
+
+  /* ---------- importar planilha ---------- */
+  var IMP_COLS = [['protocolo', 'Protocolo'], ['requerente', 'Requerente'], ['email', 'E-mail'], ['outros_emails', 'Outros e-mails'], ['imovel', 'Imóvel'], ['referencia', 'Referência'], ['matricula', 'Matrícula'], ['tipo', 'Tipo de usucapião'], ['prenotacao', 'Data da prenotação'], ['advogado', 'Advogado'], ['escrevente', 'Escrevente responsável'], ['fase', 'Fase']];
+  var IMP_ALIAS = { protocolo: ['protocolo', 'prot', 'numero', 'n'], requerente: ['requerente', 'nome', 'cliente', 'interessado'], email: ['email', 'e-mail', 'mail'], outros_emails: ['outrosemails', 'emailsadicionais', 'outroemail', 'emailsextras', 'emails'],
+    imovel: ['imovel', 'endereco', 'descricao'], referencia: ['referencia', 'ref', 'apelido'], matricula: ['matricula', 'mat'], tipo: ['tipo', 'tipodeusucapiao', 'tipousucapiao', 'modalidade'], prenotacao: ['datadaprenotacao', 'datadeprenotacao', 'dataprenotacao', 'prenotacao', 'dataprotocolo', 'data'],
+    advogado: ['advogado', 'representante'], escrevente: ['escrevente', 'responsavel', 'escreventeresponsavel', 'comquem'], fase: ['fase', 'etapa', 'situacao', 'status'] };
+  var norm = function (t) { return String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''); };
+
+  function parseTable(txt) {
+    txt = String(txt || '').replace(/^﻿/, '');
+    var first = txt.split(/\r?\n/)[0] || '';
+    var delim = (first.match(/\t/g) || []).length ? '\t' : (first.match(/;/g) || []).length >= (first.match(/,/g) || []).length ? ';' : ',';
+    var rows = [], row = [], cell = '', q = false;
+    for (var i = 0; i < txt.length; i++) {
+      var c = txt[i];
+      if (q) { if (c === '"') { if (txt[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+      else if (c === '"') q = true;
+      else if (c === delim) { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && txt[i + 1] === '\n') i++; row.push(cell); cell = ''; if (row.some(function (x) { return x.trim() !== ''; })) rows.push(row); row = []; }
+      else cell += c;
+    }
+    row.push(cell); if (row.some(function (x) { return x.trim() !== ''; })) rows.push(row);
+    return rows;
+  }
+  function parseDateAny(v) {
+    v = String(v || '').trim(); if (!v) return null;
+    var m = v.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+    if (m) { var y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + pad(+m[2]) + '-' + pad(+m[1]); }
+    m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? v : undefined;
+  }
+  function buildImport(rows) {
+    if (rows.length < 2) return { erro: 'A planilha precisa ter uma linha de títulos e pelo menos um processo.' };
+    var head = rows[0].map(norm), col = {};
+    Object.keys(IMP_ALIAS).forEach(function (k) {
+      var i = head.findIndex(function (h) { return IMP_ALIAS[k].indexOf(h) >= 0; });
+      if (i >= 0) col[k] = i;
+    });
+    if (col.protocolo == null) return { erro: 'Não achei a coluna “Protocolo” na primeira linha. Use o modelo para conferir os títulos.' };
+    var existentes = {}; S.procs.forEach(function (p) { existentes[p.protocolo] = 1; });
+    var vistos = {}, itens = [];
+    rows.slice(1).forEach(function (r, ix) {
+      var g = function (k) { return col[k] == null ? '' : String(r[col[k]] == null ? '' : r[col[k]]).trim(); };
+      var proto = g('protocolo').replace(/[.\s]/g, ''), it = { linha: ix + 2, proto: proto, avisos: [], erro: '' };
+      if (!/^[0-9]{1,12}$/.test(proto)) it.erro = 'Protocolo inválido';
+      else if (existentes[proto]) it.erro = 'Já existe no quadro';
+      else if (vistos[proto]) it.erro = 'Repetido na planilha';
+      vistos[proto] = 1;
+      var mail = g('email'), nome = g('requerente');
+      if (nome.length < 2) { nome = 'A preencher (protocolo ' + proto + ')'; it.avisos.push('sem nome'); }
+      if (!EMAIL_RE.test(mail)) { if (mail) it.avisos.push('e-mail inválido'); else it.avisos.push('sem e-mail'); mail = 'sem-email-' + proto + '@pendente.invalid'; }
+      var extras = parseEmails(g('outros_emails').replace(/\|/g, ',')).filter(function (e) { return EMAIL_RE.test(e); }).slice(0, 5);
+      var pr = parseDateAny(g('prenotacao')); if (pr === undefined) { it.avisos.push('data inválida'); pr = null; }
+      var fase = 1, fv = g('fase');
+      if (fv) {
+        var fn = norm(fv), f = S.fases.find(function (x) { return String(x.id) === fv || norm(x.nome) === fn || norm(x.nome).indexOf(fn) === 0 || fn.indexOf(norm(x.nome)) === 0; });
+        if (f && !f.oculta) fase = f.id; else it.avisos.push('fase “' + fv + '” não reconhecida (vai para a fase 1)');
+      }
+      var resp = null, ev = g('escrevente');
+      if (ev) {
+        var en = norm(ev), u = approved().find(function (x) { return norm(x.nome) === en || norm(x.nome).indexOf(en) === 0; });
+        var x = u ? null : S.externos.find(function (y) { return norm(y.nome) === en || norm(y.nome).indexOf(en) === 0; });
+        resp = u ? 'u:' + u.id : x ? 'x:' + x.id : null;
+        if (!resp) it.novoResp = ev;
+      }
+      var adv = null, av = g('advogado');
+      if (av) { var an = norm(av), a = S.advs.find(function (y) { return norm(y.nome) === an; }); if (a) adv = a.id; else it.avisos.push('advogado “' + av + '” não cadastrado'); }
+      it.dados = { nome: nome, email: mail, extras: extras, imovel: g('imovel'), ref: g('referencia'), mat: g('matricula'), tipo: g('tipo'), pren: pr, fase: fase, resp: resp, adv: adv };
+      itens.push(it);
+    });
+    return { itens: itens };
+  }
+  function modeloCsv() {
+    var ex = ['52474', 'Maria da Silva', 'maria@exemplo.com', '', 'Rua das Flores, lote 5', 'Chácara Santa Luzia', '12345', 'Extraordinária', '10/09/2026', '', 'Luana', 'Protocolo / Prenotação'];
+    var blob = new Blob(['﻿' + IMP_COLS.map(function (c) { return c[1]; }).join(';') + '\r\n' + ex.join(';') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'modelo-importacao.csv'; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function openImport() {
+    openGen('<h2>Importar planilha</h2><div class="muted">Traga vários processos de uma vez. Só o <b>Protocolo</b> é obrigatório; o que faltar fica como “dados a preencher”.</div>' +
+      '<div class="row2 wrap" style="margin-top:8px"><input type="file" id="imFile" accept=".csv,.txt,.tsv,text/csv" aria-label="Arquivo CSV"><button type="button" class="linkbtn" id="imModelo">Baixar modelo</button></div>' +
+      '<p class="hint">Excel: use Arquivo → Salvar como → CSV. Ou copie as células no Excel e cole abaixo.</p>' +
+      '<textarea id="imTxt" rows="5" placeholder="Cole aqui (a primeira linha deve ter os títulos das colunas)"></textarea>' +
+      '<div class="err" id="imErr" role="alert"></div><div id="imPrev"></div>' +
+      '<div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn" id="imAnalisar">Conferir</button><button type="button" class="btn primary" id="imOk" disabled>Importar</button></div>', function (d) {
+        var plan = null;
+        $('#imModelo').onclick = modeloCsv;
+        $('#imFile').onchange = function (e) {
+          var f = e.target.files[0]; if (!f) return;
+          var rd = new FileReader(); rd.onload = function () { $('#imTxt').value = rd.result; analisar(); }; rd.readAsText(f, 'utf-8');
+        };
+        $('#imAnalisar').onclick = analisar;
+        function analisar() {
+          $('#imErr').textContent = ''; $('#imPrev').innerHTML = ''; $('#imOk').disabled = true; plan = null;
+          var txt = $('#imTxt').value; if (!txt.trim()) return ($('#imErr').textContent = 'Escolha um arquivo ou cole os dados.');
+          var b = buildImport(parseTable(txt));
+          if (b.erro) return ($('#imErr').textContent = b.erro);
+          if (b.itens.length > 300) return ($('#imErr').textContent = 'Máximo de 300 processos por vez.');
+          plan = b;
+          var ok = b.itens.filter(function (i) { return !i.erro; }), ruins = b.itens.length - ok.length;
+          var novos = Array.from(new Set(ok.filter(function (i) { return i.novoResp; }).map(function (i) { return i.novoResp; })));
+          $('#imPrev').innerHTML = '<div class="msg info" style="margin:8px 0">' + ok.length + ' ' + plural(ok.length, 'processo será importado', 'processos serão importados') + (ruins ? ' · ' + ruins + ' ' + plural(ruins, 'linha será ignorada', 'linhas serão ignoradas') : '') + '</div>' +
+            '<div class="tblwrap" style="max-height:220px;overflow:auto"><table class="tbl"><thead><tr><th>Protocolo</th><th>Requerente</th><th>Fase</th><th>Observações</th></tr></thead><tbody>' + b.itens.slice(0, 60).map(function (i) {
+              return '<tr class="' + (i.erro ? 'imp-bad' : '') + '"><td>' + esc(i.proto || '—') + '</td><td>' + esc(i.dados.nome) + '</td><td>' + esc(faseById(i.dados.fase).nome) + '</td><td class="small">' + (i.erro ? '<b>' + esc(i.erro) + '</b>' : esc(i.avisos.join('; '))) + '</td></tr>';
+            }).join('') + '</tbody></table></div>' + (b.itens.length > 60 ? '<p class="hint">Mostrando as 60 primeiras linhas.</p>' : '') +
+            (novos.length ? '<p class="hint">Escreventes não encontrados serão cadastrados como “pessoa sem conta”: <b>' + esc(novos.join(', ')) + '</b>.</p>' : '') +
+            '<label class="check"><input type="checkbox" id="imMail"> Enviar e-mail de aviso aos requerentes que tiverem e-mail válido</label><p class="hint">Deixe desmarcado se os requerentes já estão em andamento e não precisam de novo aviso.</p>';
+          $('#imOk').disabled = !ok.length;
+        }
+        $('#imOk').onclick = function () {
+          if (!plan) return;
+          var ok = plan.itens.filter(function (i) { return !i.erro; }), avisar = $('#imMail') && $('#imMail').checked;
+          $('#imOk').disabled = true; $('#imAnalisar').disabled = true;
+          var nomes = Array.from(new Set(ok.filter(function (i) { return i.novoResp; }).map(function (i) { return i.novoResp; })));
+          var mapaNovos = {};
+          var criar = nomes.reduce(function (pr, n) {
+            return pr.then(function () {
+              return sb.from('pessoas_externas').insert({ nome: n }).select().single().then(function (r) { if (!r.error) { S.externos.push(r.data); mapaNovos[n] = 'x:' + r.data.id; } });
+            });
+          }, Promise.resolve());
+          var feitos = 0, falhas = [];
+          criar.then(function () {
+            return ok.reduce(function (pr, it, idx) {
+              return pr.then(function () {
+                $('#imOk').textContent = 'Importando ' + (idx + 1) + ' de ' + ok.length + '…';
+                var k = it.dados.resp || mapaNovos[it.novoResp] || null, pl = respPayload(k), dd = it.dados;
+                return sb.rpc('importar_processo', {
+                  p_protocolo: it.proto, p_nome: dd.nome, p_email: dd.email, p_imovel: dd.imovel, p_fase: dd.fase,
+                  p_responsavel: pl.responsavel_id, p_responsavel_externo: pl.responsavel_externo_id, p_emails_extra: dd.extras,
+                  p_matricula: dd.mat || null, p_tipo: dd.tipo || null, p_prenotacao: dd.pren, p_referencia: dd.ref || null, p_advogado: dd.adv, p_avisar: !!avisar
+                }).then(function (r) { if (r.error) falhas.push(it.proto + ': ' + errText(r.error)); else feitos++; });
+              });
+            }, Promise.resolve());
+          }).then(function () {
+            d.close(); reloadProcs().then(function () { if ($('#resps')) renderResps(); });
+            toast(feitos + ' ' + plural(feitos, 'processo importado', 'processos importados') + (falhas.length ? '. Com erro: ' + falhas.slice(0, 3).join(' | ') : '.'), null, 9000);
+          });
+        };
+      });
   }
 
   /* ---------- aba Prazos ---------- */
@@ -976,6 +1370,8 @@
         return '<div class="fase-row" data-f="' + f.id + '"><div class="fase-n" style="--c:' + phaseColor(f.id) + '">' + f.id + '</div><div class="fase-f">' +
           '<label>Nome da etapa</label><input type="text" maxlength="80" data-k="nome" value="' + esc(f.nome) + '">' +
           '<label>Texto mostrado ao requerente</label><textarea rows="2" maxlength="400" data-k="descricao_publica">' + esc(f.descricao_publica || '') + '</textarea>' +
+          '<label>O que isso significa <span class="opt">(linguagem simples, aparece na consulta)</span></label><textarea rows="2" maxlength="400" data-k="significado">' + esc(f.significado || '') + '</textarea>' +
+          '<label>O que o requerente precisa fazer agora</label><textarea rows="2" maxlength="400" data-k="acao">' + esc(f.acao || '') + '</textarea>' +
           '<div class="row2 wrap"><label class="check"><input type="checkbox" data-k="oculta"' + (f.oculta ? ' checked' : '') + (fixa ? ' disabled' : '') + '> Ocultar esta etapa' + (fixa ? ' (obrigatória)' : '') + '</label><button class="btn sm primary" data-save="' + f.id + '">Salvar</button></div></div></div>';
       }).join('');
     document.querySelectorAll('[data-save]').forEach(function (b) {
@@ -984,10 +1380,11 @@
         var nome = row.querySelector('[data-k=nome]').value.trim(), desc = row.querySelector('[data-k=descricao_publica]').value.trim();
         if (nome.length < 2) return toast('Informe o nome da etapa.');
         b.disabled = true;
-        sb.from('fases').update({ nome: nome, descricao_publica: desc, oculta: row.querySelector('[data-k=oculta]').checked }).eq('id', id).then(function (r) {
+        var sig = row.querySelector('[data-k=significado]').value.trim() || null, aca = row.querySelector('[data-k=acao]').value.trim() || null;
+        sb.from('fases').update({ nome: nome, descricao_publica: desc, significado: sig, acao: aca, oculta: row.querySelector('[data-k=oculta]').checked }).eq('id', id).then(function (r) {
           b.disabled = false;
           if (r.error) { toast(errText(r.error)); return; }
-          var f = faseById(id); f.nome = nome; f.descricao_publica = desc; f.oculta = row.querySelector('[data-k=oculta]').checked;
+          var f = faseById(id); f.nome = nome; f.descricao_publica = desc; f.significado = sig; f.acao = aca; f.oculta = row.querySelector('[data-k=oculta]').checked;
           toast('Etapa salva.');
         });
       };
@@ -1078,8 +1475,13 @@
   function renderConta() {
     $('#body').innerHTML = '<div class="page gut narrow"><h2>Minha conta</h2><p class="muted" style="margin:0">' + esc(S.me.nome) + ' · ' + esc(S.me.email) + '</p>' +
       '<div class="card-box"><h3 style="margin:0 0 4px">Resumo diário por e-mail</h3><p class="muted" style="margin:0 0 8px">Nos dias úteis, às 8h, você recebe a lista dos seus processos parados há mais de 30 dias ou com prazo de edital perto do fim.' + (isOficial() ? ' Como Oficial, você também recebe os processos sem responsável.' : '') + '</p><label class="check"><input type="checkbox" id="cResumo"' + (S.me.resumo_diario ? ' checked' : '') + '> Receber o resumo diário</label></div>' +
+      '<div class="card-box"><h3 style="margin:0 0 4px">Aparência</h3><p class="muted" style="margin:0 0 8px">Vale só para este aparelho.</p><div class="grid2"><div><label for="cTema">Tema</label><select id="cTema"><option value="auto">Automático (segue o aparelho)</option><option value="claro">Claro</option><option value="escuro">Escuro</option></select></div><div><label for="cFonte">Tamanho da letra</label><select id="cFonte"><option value="normal">Normal</option><option value="grande">Grande</option><option value="maior">Maior</option></select></div></div><p style="margin:10px 0 0"><button type="button" class="btn sm" id="cTour">Rever o tour de boas-vindas</button> <button type="button" class="btn sm" id="cAtalhos">Ver atalhos</button></p></div>' +
       '<div class="card-box"><h3 style="margin:0 0 4px">Verificação em duas etapas</h3><div id="mfaBox"><div class="loading">Carregando…</div></div></div>' +
       '<div class="card-box"><h3 style="margin:0 0 4px">Trocar senha</h3><label for="cPass">Nova senha</label><input type="password" id="cPass" autocomplete="new-password" placeholder="Mínimo de 8 caracteres"><div class="err" id="cPErr"></div><button class="btn" id="cPBtn" style="margin-top:8px">Salvar senha</button></div></div>';
+    $('#cTema').value = window.CENTRAL_PREFS.get().tema; $('#cFonte').value = window.CENTRAL_PREFS.get().fonte;
+    $('#cTema').onchange = function (e) { window.CENTRAL_PREFS.set('tema', e.target.value); };
+    $('#cFonte').onchange = function (e) { window.CENTRAL_PREFS.set('fonte', e.target.value); };
+    $('#cTour').onclick = openTour; $('#cAtalhos').onclick = openHelp;
     $('#cResumo').onchange = function (e) {
       sb.rpc('definir_resumo_diario', { p_ativo: e.target.checked }).then(function (r) { if (r.error) { toast(errText(r.error)); e.target.checked = !e.target.checked; } else { S.me.resumo_diario = e.target.checked; toast(e.target.checked ? 'Resumo diário ativado.' : 'Resumo diário desativado.'); } });
     };
@@ -1129,12 +1531,12 @@
   /* ---------- eventos globais ---------- */
   document.addEventListener('click', function (e) {
     var as = e.target.closest('[data-assign]');
-    if (as) { e.stopPropagation(); if (Date.now() - lastDrag > 250) openAssign(+as.dataset.assign); return; }
+    if (as) { e.stopPropagation(); if (SEL.on) { toggleSel(+as.dataset.assign); return; } if (Date.now() - lastDrag > 250) openAssign(+as.dataset.assign); return; }
     var card = e.target.closest('.card');
-    if (card && Date.now() - lastDrag > 250) openDetail(+card.dataset.id);
+    if (card && Date.now() - lastDrag > 250) { if (SEL.on) toggleSel(+card.dataset.id); else openDetail(+card.dataset.id); }
   });
   document.addEventListener('keydown', function (e) {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('card')) { e.preventDefault(); openDetail(+e.target.dataset.id); }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('card')) { e.preventDefault(); if (SEL.on) toggleSel(+e.target.dataset.id); else openDetail(+e.target.dataset.id); }
   });
   ['#dMove', '#dDetail', '#dNew', '#dGen'].forEach(function (s) { $(s).addEventListener('click', function (e) { if (e.target === e.currentTarget) e.currentTarget.close(); }); });
 

@@ -1,0 +1,23 @@
+{
+ "name": "Acompanhe sua usucapião",
+ "short_name": "Usucapião",
+ "description": "Consulte o andamento do seu pedido de usucapião extrajudicial.",
+ "start_url": "/",
+ "scope": "/",
+ "display": "standalone",
+ "background_color": "#EDF0EA",
+ "theme_color": "#0F3B2D",
+ "lang": "pt-BR",
+ "icons": [
+  {
+   "src": "/assets/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "/assets/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  }
+ ]
+}
