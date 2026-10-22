@@ -87,6 +87,8 @@ Deno.serve(async (req) => {
   });
   const corpo = await req.json().catch(() => ({}));
   if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
+  const acessos = await enviarAcessos(sb);
+  if (corpo?.modo === "acesso") return json({ acessos });
   const { data, error } = await sb.rpc("reservar_emails_v4", { p_limite: 20 });
   if (error) return json({ erro: error.message }, 500);
 
@@ -116,8 +118,30 @@ Deno.serve(async (req) => {
       }).eq("id", r.email_id);
     }
   }
-  return json({ enviados, falhas });
+  return json({ enviados, falhas, acessos });
 });
+
+// Link de acesso do advogado (válido 30 minutos), pedido na página pública com o e-mail cadastrado.
+async function enviarAcessos(sb: ReturnType<typeof createClient>) {
+  const { data, error } = await sb.rpc("reservar_acessos");
+  if (error || !data) return 0;
+  let n = 0;
+  for (const a of data as { email: string; nome: string; token: string }[]) {
+    const link = `${SITE}/?adv=${encodeURIComponent(a.token)}`;
+    const primeiro = (a.nome ?? "").trim().split(/\s+/)[0] || "";
+    const html = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#EDF0EA;font-family:Arial,Helvetica,sans-serif;color:#13261F"><table role="presentation" width="100%" style="background:#EDF0EA"><tr><td align="center" style="padding:24px 12px"><table role="presentation" width="560" style="max-width:560px;width:100%;background:#fff;border-radius:12px;overflow:hidden"><tr><td style="background:#0F3B2D;color:#F2F7F3;padding:18px 24px;font-size:18px;font-weight:bold">Registro de Imóveis de Itararé</td></tr><tr><td style="padding:24px"><p style="margin:0 0 12px;font-size:16px">Olá${primeiro ? ", " + esc(primeiro) : ""}!</p><p style="margin:0 0 16px;font-size:15px;line-height:1.5">Use o botão abaixo para ver o andamento de todos os seus processos de usucapião. O link vale por 30 minutos.</p><p style="margin:24px 0"><a href="${esc(link)}" style="background:#0F3B2D;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold;display:inline-block">Ver meus processos</a></p><p style="margin:0;font-size:12px;color:#66786F;line-height:1.5">Se você não pediu este acesso, ignore esta mensagem. Não encaminhe este e-mail: quem tiver o link vê a lista.</p></td></tr></table></td></tr></table></body></html>`;
+    const texto = `Olá${primeiro ? ", " + primeiro : ""}!\n\nUse o link para ver o andamento de todos os seus processos (vale 30 minutos):\n${link}\n\nSe você não pediu, ignore. Não encaminhe este e-mail.`;
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: FROM, to: [a.email], subject: "Seu acesso aos processos de usucapião", html, text: texto }),
+      });
+      if (resp.ok) n++;
+    } catch { /* tenta de novo no próximo pedido do advogado */ }
+  }
+  return n;
+}
 
 // Resumo diário: um e-mail por escrevente com os processos que pedem atenção.
 async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {

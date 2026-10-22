@@ -300,6 +300,52 @@
     }).then(function () { advBusy = false; $('#advBtn').disabled = false; });
   });
 
+  function mostrarAdv(r, fases, out) {
+    out.innerHTML = renderAdv(r.data, fases);
+    bindAdv(out); bindActions(out, null);
+    printHead('Área do advogado: ' + r.data.nome);
+    out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  /* e-mail cadastrado: recebe um link de acesso na caixa de entrada */
+  var mailBusy = false;
+  $('#advMailForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var out = $('#out'), mail = $('#advMail').value.trim();
+    if (mailBusy) return;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { out.innerHTML = '<div class="notfound">Digite um e-mail válido.</div>'; return; }
+    mailBusy = true; $('#advMailBtn').disabled = true;
+    out.innerHTML = '<div class="loading">Enviando…</div>';
+    sb.rpc('solicitar_acesso_advogado', { p_email: mail }).then(function (r) {
+      if (r.error) {
+        out.innerHTML = '<div class="notfound">' + (String(r.error.message || '').indexOf('Muitas consultas') >= 0
+          ? 'Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente de novo.'
+          : 'Não foi possível enviar agora. Tente de novo em instantes.') + '</div>';
+        return;
+      }
+      try { sb.functions.invoke('enviar-emails', { body: { modo: 'acesso' } }); } catch (x) {}
+      out.innerHTML = '<div class="result"><div class="res-h"><span class="k">Verifique o seu e-mail</span><p style="margin:6px 0 0">Se <b>' + esc(mail) + '</b> estiver cadastrado no cartório, enviamos agora um link de acesso. Ele vale por 30 minutos e pode levar alguns instantes para chegar. Olhe também o spam.</p></div></div>';
+    }).catch(function () {
+      out.innerHTML = '<div class="notfound">Não foi possível enviar agora. Tente de novo em instantes.</div>';
+    }).then(function () { mailBusy = false; $('#advMailBtn').disabled = false; });
+  });
+
+  /* link recebido por e-mail: /?adv=... */
+  function abrirLink(tok) {
+    var out = $('#out');
+    try { history.replaceState(null, '', location.pathname); } catch (x) {}
+    out.innerHTML = '<div class="loading">Consultando…</div>';
+    Promise.all([sb.rpc('consulta_advogado_link', { p_token: tok }), getFases()]).then(function (res) {
+      var r = res[0], fases = res[1];
+      if (r.error) {
+        out.innerHTML = '<div class="notfound">' + (String(r.error.message || '').indexOf('Muitas consultas') >= 0
+          ? 'Muitas tentativas em pouco tempo. Aguarde um minuto e abra o link de novo.' : 'Não foi possível consultar agora. Tente de novo em instantes.') + '</div>';
+        return;
+      }
+      if (!r.data) { out.innerHTML = '<div class="notfound">Este link venceu ou não é válido. Peça um novo informando o seu e-mail em “Tenho mais de um processo”.</div>'; return; }
+      mostrarAdv(r, fases, out);
+    }).catch(function () { out.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>'; });
+  }
+
   $('#qform').addEventListener('submit', function (e) {
     e.preventDefault();
     var v = $('#pubProto').value;
@@ -308,6 +354,8 @@
   });
 
   // Link direto, como o do e-mail: /?p=52474
-  var q = new URLSearchParams(location.search).get('p');
-  if (q) { $('#pubProto').value = q; consultar(q); } else showResume();
+  var advTok = new URLSearchParams(location.search).get('adv');
+  if (advTok) { abrirLink(advTok); }
+  var q = advTok ? null : new URLSearchParams(location.search).get('p');
+  if (q) { $('#pubProto').value = q; consultar(q); } else if (!advTok) showResume();
 })();

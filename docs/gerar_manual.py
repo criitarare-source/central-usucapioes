@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.2"
+VERSAO = "1.3"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -68,6 +68,7 @@ story.append(sec("6. Advogados com vários processos", [
     "Aba <b>Advogados</b>: cadastre o nome (e e-mail, se quiser que receba cópias). O sistema gera um <b>código fixo</b>, mostrado <b>uma única vez</b>: copie e entregue ao advogado. Se perder, gere outro.",
     f"Ele digita o código em <b>{URL}</b>, na opção “Tenho mais de um processo”, e acompanha todos de uma vez.",
     "Vincule o advogado em cada processo (campo “Advogado / representante”).",
+    "<b>Sem código:</b> se o advogado tiver e-mail cadastrado, ele pode informar só o e-mail na mesma opção e recebe um <b>link de acesso</b> (vale 30 minutos) na caixa de entrada. Por isso, mantenha o e-mail dele correto.",
 ]))
 story.append(sec("7. Ganhar tempo", [
     "<b>Buscar em tudo:</b> aperte <b>/</b> (ou Ctrl+K) em qualquer tela. Outros atalhos: <b>N</b> novo processo, <b>M</b> só os meus, <b>P</b> prazos, <b>?</b> ajuda.",
