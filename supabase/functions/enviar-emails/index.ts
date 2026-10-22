@@ -79,6 +79,7 @@ Deno.serve(async () => {
   for (const r of (data ?? []) as Linha[]) {
     const { assunto, html, texto } = montar(r);
     let erroEnvio: string | null = null;
+    let resendId: string | null = null;
     try {
       const resp = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -86,12 +87,13 @@ Deno.serve(async () => {
         body: JSON.stringify({ from: FROM, to: [r.destinatario], subject: assunto, html, text: texto }),
       });
       if (!resp.ok) erroEnvio = `Resend ${resp.status}: ${(await resp.text()).slice(0, 300)}`;
+      else resendId = (await resp.json().catch(() => null))?.id ?? null;
     } catch (e) {
       erroEnvio = `Falha de rede: ${String((e as Error).message ?? e).slice(0, 200)}`;
     }
     if (!erroEnvio) {
       enviados++;
-      await sb.from("emails_enviados").update({ status: "enviado", enviado_em: new Date().toISOString(), erro: null }).eq("id", r.email_id);
+      await sb.from("emails_enviados").update({ status: "enviado", enviado_em: new Date().toISOString(), erro: null, resend_id: resendId }).eq("id", r.email_id);
     } else {
       falhas++;
       await sb.from("emails_enviados").update({
