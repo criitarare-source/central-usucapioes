@@ -303,7 +303,7 @@
     $('#bOut').onclick = signOut;
     $('#bGlobal').onclick = openGlobalSearch;
     $('#bAjuda').onclick = openHelp;
-    var prefBtns = function () { $('#bTema').textContent = window.CENTRAL_PREFS.label('tema').replace('Tema: ', 'Tema ') ; $('#bFonte').textContent = 'Aa ' + window.CENTRAL_PREFS.label('fonte').replace('Letra: ', ''); };
+    var prefBtns = function () { $('#bTema').textContent = '◐ ' + { auto: 'Auto', claro: 'Claro', escuro: 'Escuro' }[window.CENTRAL_PREFS.get().tema]; $('#bFonte').textContent = 'Aa ' + window.CENTRAL_PREFS.get().fonte; };
     prefBtns();
     $('#bTema').onclick = function () { window.CENTRAL_PREFS.cycle('tema'); prefBtns(); };
     $('#bFonte').onclick = function () { window.CENTRAL_PREFS.cycle('fonte'); prefBtns(); };

@@ -436,3 +436,33 @@ html[data-fs] dialog.sheet{height:calc(100% / var(--z));max-height:calc(100% / v
   .pi-prazos{display:none!important}
   a{color:#000;text-decoration:none}
 }
+
+/* quadro: a rolagem vertical é do quadro inteiro (barra grande), não de cada coluna */
+.board{overflow:auto;align-items:flex-start;padding-bottom:28px}
+.col{min-height:0;align-self:flex-start}
+.list{overflow:visible;flex:none;min-height:140px}
+
+/* quadro: a rolagem vertical é do quadro inteiro (barra grande), não de cada coluna */
+.board{overflow:auto;align-items:flex-start;padding-bottom:28px}
+.col{min-height:0;align-self:flex-start}
+.list{overflow:visible;flex:none;min-height:140px}
+
+/* cabeçalho mais baixo */
+.top-in{padding-block:5px;gap:4px 14px;flex-wrap:nowrap}
+.logo{height:40px}
+.brand h1{font-size:20px}
+.brand p{display:none}
+.tabs{margin-left:12px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:6px 10px;white-space:nowrap}
+.who2{flex-wrap:nowrap;gap:6px;margin-left:0;flex:none}
+.who2 .btn{padding:4px 9px;font-size:12px}
+.who-n{display:none}
+.toolbar{padding-block:8px 2px}
+.stat b{font-size:22px}
+.stats{padding-block:2px}
+@media (max-width:900px){.top-in{flex-wrap:wrap}.tabs{flex:1 1 100%;margin-left:0;order:3}.who2{margin-left:auto}}
+.tab{padding:6px 8px}
+.who2 .hbtn kbd{display:none}
+.who2 a{font-size:12px}
+.toolbar{gap:6px 10px}
