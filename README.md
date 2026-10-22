@@ -97,3 +97,7 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 - **Área do advogado:** os processos abrem todos na mesma tela (podem ficar vários abertos), com contagem por situação, filtros e busca.
 
 `supabase/manual/09_consultas_publicas_v2.sql` atualiza as duas consultas públicas (já aplicado).
+
+## Manual dos escreventes
+
+`docs/Manual-Escreventes.pdf` (guia rápido de 2 páginas), gerado por `docs/gerar_manual.py`. **Sempre que uma função do painel mudar, atualize o texto e os campos `VERSAO` e `DATA` no script e rode `python3 docs/gerar_manual.py`**, depois envie o PDF novo à equipe.
