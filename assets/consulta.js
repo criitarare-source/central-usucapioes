@@ -32,7 +32,7 @@
   var fasesCache = null;
   function getFases() {
     if (fasesCache) return Promise.resolve(fasesCache);
-    return sb.from('fases').select('id,nome,descricao_publica,ordem,etapa_principal').order('ordem').then(function (r) {
+    return sb.from('fases').select('id,nome,descricao_publica,ordem,etapa_principal,oculta').order('ordem').then(function (r) {
       fasesCache = r.data || [];
       return fasesCache;
     });
@@ -41,7 +41,7 @@
   function render(d, fases) {
     var byId = {}; fases.forEach(function (f) { byId[f.id] = f; });
     var cur = byId[d.fase_id] || { nome: 'Em andamento', ordem: 0 };
-    var path = fases.filter(function (f) { return f.etapa_principal; });
+    var path = fases.filter(function (f) { return f.etapa_principal && !f.oculta; });
     var hist = d.historico || [];
     var lastMove = -1;
     hist.forEach(function (h, i) { if (h.tipo === 'fase') lastMove = i; });
@@ -118,6 +118,51 @@
       out.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>';
     }).then(function () { busy = false; $('#qbtn').disabled = false; });
   }
+
+  /* ---------- área do advogado (vários processos) ---------- */
+  $('#advToggle').addEventListener('click', function () {
+    var box = $('#advBox'), open = box.hidden;
+    box.hidden = !open; this.setAttribute('aria-expanded', open);
+    if (open) $('#advCode').focus();
+  });
+
+  var advBusy = false;
+  $('#advForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var out = $('#out'), code = $('#advCode').value;
+    if (advBusy) return;
+    if (String(code).replace(/[^A-Za-z0-9]/g, '').length !== 12) {
+      out.innerHTML = '<div class="notfound">O código tem 12 letras e números. Confira como o cartório entregou.</div>';
+      return;
+    }
+    advBusy = true; $('#advBtn').disabled = true;
+    out.innerHTML = '<div class="loading">Consultando…</div>';
+    Promise.all([sb.rpc('consulta_advogado', { p_codigo: code }), getFases()]).then(function (res) {
+      var r = res[0], fases = res[1];
+      if (r.error) {
+        out.innerHTML = '<div class="notfound">' + (String(r.error.message || '').indexOf('Muitas consultas') >= 0
+          ? 'Muitas tentativas em pouco tempo. Aguarde um minuto e tente de novo.'
+          : 'Não foi possível consultar agora. Tente de novo em instantes.') + '</div>';
+        return;
+      }
+      if (!r.data) { out.innerHTML = '<div class="notfound">Código não encontrado ou desativado. Confira o código ou procure o cartório.</div>'; return; }
+      var byId = {}; fases.forEach(function (f) { byId[f.id] = f; });
+      var lista = r.data.processos || [];
+      out.innerHTML = '<div class="result"><div class="res-h"><span class="k">Área do advogado</span><h3>' + esc(r.data.nome) + '</h3>' +
+        '<div class="meta"><span>' + lista.length + ' ' + plural(lista.length, 'processo', 'processos') + '</span></div></div>' +
+        (lista.length ? '<ul class="plist">' + lista.map(function (p) {
+          return '<li><button type="button" class="prow" data-p="' + esc(p.protocolo) + '"><span class="prow-main"><b>' + esc(p.protocolo) + '</b>' + (p.referencia ? '<span class="prow-ref">' + esc(p.referencia) + '</span>' : '') + '</span>' +
+            '<span class="pill" style="--c:' + phaseColor(p.fase_id) + '">' + esc((byId[p.fase_id] || {}).nome || p.fase_nome) + '</span>' +
+            '<span class="prow-d">Atualizado em ' + fmtDate(p.atualizado_em) + '</span></button></li>';
+        }).join('') + '</ul><p class="note" style="margin:12px 16px">Toque em um processo para ver a linha do tempo.</p>' : '<p class="note" style="margin:12px 16px">Nenhum processo está ligado a este código no momento.</p>') + '</div>';
+      out.querySelectorAll('.prow').forEach(function (b) {
+        b.addEventListener('click', function () { $('#pubProto').value = b.dataset.p; consultar(b.dataset.p); });
+      });
+      out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }).catch(function () {
+      out.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>';
+    }).then(function () { advBusy = false; $('#advBtn').disabled = false; });
+  });
 
   $('#qform').addEventListener('submit', function (e) {
     e.preventDefault();

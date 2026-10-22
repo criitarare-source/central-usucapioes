@@ -72,3 +72,17 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 | `RESEND_API_KEY` | Chave do Resend. Sem ela, os e-mails ficam na fila. |
 | `EMAIL_FROM` | Remetente, por exemplo `Registro de Imóveis de Itararé <usucapiao@seucartorio.com.br>`. Só funciona depois de verificar o domínio no Resend. Sem este valor, usa o remetente de teste do Resend, que só envia ao dono da conta Resend. |
 | `SITE_URL` | Endereço do site, para o link do e-mail. Se não for definido, usa `https://central-usucapioes.vercel.app`. |
+
+## Recursos do painel
+
+- **Dados editáveis:** Oficial e escreventes editam nome, e-mails (até 5 adicionais), imóvel, matrícula, tipo, data de prenotação, referência, advogado e **protocolo** (a troca pede confirmação). Toda alteração entra na trilha de auditoria (aba Ajustes → Registro de alterações e no cartão).
+- **Com quem está o caso:** qualquer escrevente aprovado pode ser indicado como responsável (no cartão, no novo processo, no detalhe). O Oficial pode passar todos os processos de um escrevente para outro (aba Equipe).
+- **Advogados:** aba *Advogados*. Cada um tem um código fixo de 12 caracteres (guardado só como hash, mostrado uma vez). Na página do cliente, “Tenho mais de um processo” lista os processos dele (protocolo, etapa e referência curta). O advogado recebe cópia dos e-mails se tiver e-mail cadastrado.
+- **Ajustes (Oficial):** nomes e textos das etapas, ocultar etapas sem uso, mensagens prontas, exportar CSV, apagar todos os processos, registro de alterações.
+- **Apagar:** um processo (Oficial, botão no cartão, digitando o protocolo) ou todos (Oficial, digitando APAGAR TUDO).
+- **Resumo diário:** e-mail às 8h (dias úteis) ao responsável com processos parados há mais de 30 dias ou com prazo de edital perto do fim. Cada um liga/desliga em *Minha conta*. Agendado por pg_cron (`resumo-diario-usucapioes`).
+- **Verificação em duas etapas (TOTP):** em *Minha conta*. Quando ativada, o banco só libera dados a sessões verificadas.
+
+## SQL aplicado manualmente
+
+`supabase/manual/08_consulta_advogado_e_limpar_quadro.sql` precisa ser colado no SQL Editor do Supabase (o conector automático bloqueia funções públicas e comandos de exclusão).

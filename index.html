@@ -23,9 +23,21 @@
           <input id="pubProto" type="text" inputmode="numeric" maxlength="20" placeholder="Ex.: 52474" aria-label="Número do protocolo" required>
           <button class="btn primary" type="submit" id="qbtn">Consultar</button>
         </form>
+        <button type="button" class="linkbtn" id="advToggle" aria-expanded="false" aria-controls="advBox">Tenho mais de um processo (advogado ou representante)</button>
+        <div id="advBox" hidden>
+          <p class="adv-help">Digite o código que o cartório entregou a você para ver todos os seus processos de uma vez.</p>
+          <form class="qform" id="advForm" autocomplete="off">
+            <input id="advCode" type="text" maxlength="20" placeholder="Código, ex.: 1A2B-3C4D-5E6F" aria-label="Código do advogado" autocapitalize="characters" spellcheck="false" required>
+            <button class="btn primary" type="submit" id="advBtn">Ver meus processos</button>
+          </form>
+        </div>
       </section>
       <div id="out" aria-live="polite"></div>
       <p class="note">Por segurança, esta página mostra apenas o andamento do pedido. Dados pessoais e documentos não aparecem aqui.</p>
+      <details class="lgpd">
+        <summary>Aviso de privacidade</summary>
+        <p>O Registro de Imóveis de Itararé, controlador dos dados, usa o número do protocolo e o código de advogado apenas para mostrar o andamento do pedido de usucapião extrajudicial e para enviar e-mails de aviso sobre mudanças de etapa. Esta página não exibe nome, documentos nem endereço do requerente. Os dados são tratados para o cumprimento de obrigação legal e da função registral, nos termos da Lei Geral de Proteção de Dados (Lei 13.709/2018). Para saber mais, pedir correção ou tirar dúvidas sobre os seus dados, procure o cartório.</p>
+      </details>
     </div>
   </main>
 </div>

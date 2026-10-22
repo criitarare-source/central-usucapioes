@@ -18,17 +18,18 @@ const fmtBR = (iso: string) =>
   new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 
 type Linha = {
-  email_id: number; destinatario: string; tentativas: number; protocolo: string; requerente_nome: string;
+  email_id: number; destinatario: string; tentativas: number; copia: boolean; protocolo: string; requerente_nome: string;
   tipo: string | null; fase_id: number | null; fase_nome: string | null; descricao: string | null;
   mensagem: string | null; prazo_edital: string | null; em: string | null;
 };
 
 function montar(r: Linha) {
-  const primeiro = (r.requerente_nome ?? "").trim().split(/\s+/)[0] || "";
+  const copia = !!r.copia;
+  const primeiro = copia ? "" : (r.requerente_nome ?? "").trim().split(/\s+/)[0] || "";
   const ehPrazo = r.tipo === "prazo";
   const titulo = ehPrazo ? "Prazo do edital atualizado" : (r.fase_nome ?? "Atualização do pedido");
   const link = `${SITE}/?p=${encodeURIComponent(r.protocolo)}`;
-  const assunto = `Usucapião ${r.protocolo}: ${ehPrazo ? "prazo do edital atualizado" : titulo}`.slice(0, 120);
+  const assunto = `${copia ? "Cópia · " : ""}Usucapião ${r.protocolo}: ${ehPrazo ? "prazo do edital atualizado" : titulo}`.slice(0, 120);
   const quando = r.em ? fmtBR(r.em) : fmtBR(new Date().toISOString());
   const desc = ehPrazo ? "" : (r.descricao ?? "");
   const prazo = !ehPrazo && r.prazo_edital ? `O prazo do edital termina em ${fmtYMD(r.prazo_edital)}.` : "";
@@ -39,7 +40,7 @@ function montar(r: Linha) {
 <tr><td style="background:#0F3B2D;color:#F2F7F3;padding:18px 24px;font-size:18px;font-weight:bold">Registro de Imóveis de Itararé</td></tr>
 <tr><td style="padding:24px">
 <p style="margin:0 0 12px;font-size:16px">Olá${primeiro ? ", " + esc(primeiro) : ""}!</p>
-<p style="margin:0 0 16px;font-size:15px;line-height:1.5">O andamento do seu pedido de usucapião extrajudicial (protocolo <b>${esc(r.protocolo)}</b>) foi atualizado.</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5">${copia ? `Cópia do andamento do pedido de usucapião extrajudicial de <b>${esc(r.requerente_nome)}</b> (protocolo <b>${esc(r.protocolo)}</b>), enviada por você constar como representante.` : `O andamento do seu pedido de usucapião extrajudicial (protocolo <b>${esc(r.protocolo)}</b>) foi atualizado.`}</p>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F5F7F3;border-left:4px solid #A8751F;border-radius:6px"><tr><td style="padding:12px 16px">
 <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#66786F">${ehPrazo ? "Atualização" : "Nova etapa"}</div>
 <div style="font-size:18px;font-weight:bold;margin:2px 0">${esc(titulo)}</div>
@@ -47,13 +48,15 @@ function montar(r: Linha) {
 ${desc ? `<p style="margin:16px 0 0;font-size:15px;line-height:1.5">${esc(desc)}</p>` : ""}
 ${r.mensagem ? `<div style="margin:16px 0 0;padding:10px 14px;border-left:3px solid #D5DCD3;background:#F5F7F3;font-size:15px;line-height:1.5"><div style="font-size:12px;color:#66786F;margin-bottom:4px">Mensagem do cartório</div>${esc(r.mensagem)}</div>` : ""}
 ${prazo ? `<p style="margin:16px 0 0;font-size:15px"><b>${esc(prazo)}</b></p>` : ""}
-<p style="margin:24px 0"><a href="${esc(link)}" style="background:#0F3B2D;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold;display:inline-block">Acompanhar meu pedido</a></p>
+<p style="margin:24px 0"><a href="${esc(link)}" style="background:#0F3B2D;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold;display:inline-block">${copia ? "Acompanhar o pedido" : "Acompanhar meu pedido"}</a></p>
 <p style="margin:0;font-size:12px;color:#66786F;line-height:1.5">Você recebe um e-mail a cada mudança de etapa. Se o botão não abrir, copie este endereço no navegador:<br>${esc(link)}</p>
 </td></tr></table></td></tr></table></body></html>`;
 
   const texto = [
     `Olá${primeiro ? ", " + primeiro : ""}!`,
-    `O andamento do seu pedido de usucapião extrajudicial (protocolo ${r.protocolo}) foi atualizado.`,
+    copia
+      ? `Cópia do andamento do pedido de usucapião extrajudicial de ${r.requerente_nome} (protocolo ${r.protocolo}).`
+      : `O andamento do seu pedido de usucapião extrajudicial (protocolo ${r.protocolo}) foi atualizado.`,
     `${ehPrazo ? "Atualização" : "Nova etapa"}: ${titulo} (${quando})`,
     desc, r.mensagem ? `Mensagem do cartório: ${r.mensagem}` : "", prazo,
     `Acompanhe o pedido: ${link}`,
@@ -62,7 +65,7 @@ ${prazo ? `<p style="margin:16px 0 0;font-size:15px"><b>${esc(prazo)}</b></p>` :
   return { assunto, html, texto };
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
   const json = (o: unknown, status = 200) =>
     new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
 
@@ -72,7 +75,9 @@ Deno.serve(async () => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
     auth: { persistSession: false },
   });
-  const { data, error } = await sb.rpc("reservar_emails", { p_limite: 20 });
+  const corpo = await req.json().catch(() => ({}));
+  if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
+  const { data, error } = await sb.rpc("reservar_emails_v2", { p_limite: 20 });
   if (error) return json({ erro: error.message }, 500);
 
   let enviados = 0, falhas = 0;
@@ -103,3 +108,26 @@ Deno.serve(async () => {
   }
   return json({ enviados, falhas });
 });
+
+// Resumo diário: um e-mail por escrevente com os processos que pedem atenção.
+async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {
+  const { data, error } = await sb.rpc("resumo_diario");
+  if (error) return json({ erro: error.message }, 500);
+  type Item = { protocolo: string; nome: string; fase: string; motivo: string; sem_responsavel: boolean };
+  let enviados = 0, falhas = 0;
+  for (const u of (data ?? []) as { resp_nome: string; resp_email: string; itens: Item[] }[]) {
+    const linhas = u.itens.map((i) =>
+      `<tr><td style="padding:8px 10px;border-bottom:1px solid #E3E8E1;font-size:14px"><b>${esc(i.protocolo)}</b> · ${esc(i.nome)}<br><span style="color:#66786F;font-size:12px">${esc(i.fase)}${i.sem_responsavel ? " · sem escrevente responsável" : ""}</span></td><td style="padding:8px 10px;border-bottom:1px solid #E3E8E1;font-size:13px;color:#8A4B0F">${esc(i.motivo)}</td></tr>`).join("");
+    const html = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#EDF0EA;font-family:Arial,Helvetica,sans-serif;color:#13261F"><table role="presentation" width="100%" style="background:#EDF0EA"><tr><td align="center" style="padding:24px 12px"><table role="presentation" width="600" style="max-width:600px;width:100%;background:#fff;border-radius:12px;overflow:hidden"><tr><td style="background:#0F3B2D;color:#F2F7F3;padding:18px 24px;font-size:18px;font-weight:bold">Central de Usucapiões · resumo do dia</td></tr><tr><td style="padding:24px"><p style="margin:0 0 12px;font-size:15px">Bom dia, ${esc(u.resp_nome.split(" ")[0])}. Estes processos pedem atenção:</p><table role="presentation" width="100%" style="border-collapse:collapse">${linhas}</table><p style="margin:20px 0 0"><a href="${esc(SITE)}/painel" style="background:#0F3B2D;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:bold;display:inline-block">Abrir o painel</a></p><p style="margin:16px 0 0;font-size:12px;color:#66786F">Para parar de receber, desative o resumo diário em “Minha conta”, no painel.</p></td></tr></table></td></tr></table></body></html>`;
+    const texto = `Bom dia, ${u.resp_nome}. Processos que pedem atenção:\n\n` + u.itens.map((i) => `- ${i.protocolo} (${i.nome}): ${i.motivo}`).join("\n") + `\n\n${SITE}/painel`;
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: FROM, to: [u.resp_email], subject: `Resumo do dia: ${u.itens.length} ${u.itens.length === 1 ? "processo pede" : "processos pedem"} atenção`, html, text: texto }),
+      });
+      if (resp.ok) enviados++; else falhas++;
+    } catch { falhas++; }
+  }
+  return json({ resumo: true, enviados, falhas });
+}

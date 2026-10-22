@@ -251,3 +251,54 @@ details.prev summary{cursor:pointer;font-weight:600;font-size:13px}
 #root{height:100%}
 
 .st-enviando{--c:var(--gold)}
+
+/* ---- novas telas do painel ---- */
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.danger:hover{filter:brightness(1.1)}
+.btn.danger[disabled]{opacity:.5}
+.sh input[type=text],.sh input[type=email],.m-in input[type=password],.page input[type=text],.page input[type=password],.page input[type=email],.page select,.page textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;background:var(--surface-2);color:var(--ink)}
+.sh form{display:flex;flex-direction:column;gap:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:480px){.grid2{grid-template-columns:1fr}}
+.row2.wrap{flex-wrap:wrap}
+.row2 select{flex:1;min-width:140px}
+.page-h{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.page.narrow{max-width:640px}
+.card-box{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:14px}
+.card-box label:not(.check){font-weight:600;font-size:13px;display:block;margin-top:8px}
+.danger-box{border-color:var(--bad)}
+.subnav{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 14px}
+.subtab{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:6px 14px;font:600 13px var(--f-body);cursor:pointer}
+.subtab[aria-selected=true]{background:var(--btn);border-color:var(--btn);color:var(--on-btn)}
+.fase-row{display:flex;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+.fase-n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--c);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+.fase-f{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.fase-f label:not(.check){font-weight:600;font-size:13px}
+.msg-row{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:8px}
+.msg-row p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.codebox{font:700 28px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-align:center;background:var(--surface-2);border:1px dashed var(--gold);border-radius:10px;padding:16px 8px;margin:8px 0;user-select:all}
+.opt-list{display:flex;flex-direction:column;gap:4px;margin:6px 0}
+.opt-row{display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-weight:500!important;margin-top:0!important}
+.opt-row:has(input:checked){border-color:var(--green-2);background:var(--surface-2)}
+.card-foot .assign{display:flex;align-items:center;gap:6px;background:none;border:0;padding:2px 4px;margin:-2px -4px;border-radius:6px;cursor:pointer;color:inherit;font:inherit;min-width:0}
+.card-foot .assign:hover{background:var(--surface-2)}
+.fsel{border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);padding:6px 12px;font:500 13px var(--f-body)}
+.lgpd{margin-top:16px;font-size:12px;color:var(--ink-3)}
+.lgpd summary{cursor:pointer}
+.lgpd p{margin:6px 0 0;line-height:1.5}
+.qr{display:block;width:180px;height:180px;margin:10px 0;background:#fff;padding:6px;border-radius:8px}
+.steps{margin:10px 0 0;padding-left:20px;font-size:13px;color:var(--ink-2)}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:var(--surface-2);padding:1px 5px;border-radius:4px;word-break:break-all}
+.acts{white-space:nowrap}
+
+/* ---- área do advogado (página pública) ---- */
+#advToggle{display:block;margin:14px auto 0}
+#advBox{margin-top:10px;text-align:left}
+.adv-help{margin:0 0 8px;font-size:13px;color:var(--ink-2);text-align:center}
+.plist{list-style:none;margin:0;padding:0}
+.prow{width:100%;display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:12px 16px;cursor:pointer;color:inherit;font:inherit}
+.prow:hover{background:var(--surface-2)}
+.prow-main{display:flex;flex-direction:column;gap:2px}
+.prow-ref{font-size:13px;color:var(--ink-2)}
+.prow-d{grid-column:1/-1;font-size:12px;color:var(--ink-3)}
+#advBox{width:100%}
