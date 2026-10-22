@@ -77,7 +77,7 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 
 - **Dados editáveis:** Oficial e escreventes editam nome, e-mails (até 5 adicionais), imóvel, matrícula, tipo, data de prenotação, referência, advogado e **protocolo** (a troca pede confirmação). Toda alteração entra na trilha de auditoria (aba Ajustes → Registro de alterações e no cartão).
 - **Com quem está o caso:** qualquer escrevente aprovado pode ser indicado como responsável (no cartão, no novo processo, no detalhe). O Oficial pode passar todos os processos de um escrevente para outro (aba Equipe).
-- **Advogados:** aba *Advogados*. Cada um tem um código fixo de 12 caracteres (guardado só como hash, mostrado uma vez). Na página do cliente, “Tenho mais de um processo” lista os processos dele (protocolo, etapa e referência curta). O advogado recebe cópia dos e-mails se tiver e-mail cadastrado.
+- **Advogados:** aba *Advogados*. Cada um tem um código fixo de 12 caracteres (guardado só como hash, mostrado uma vez). Na página do cliente, o campo de e-mail (ou “Tenho um código de advogado”) lista os processos dele (protocolo, etapa e referência curta). O advogado recebe cópia dos e-mails se tiver e-mail cadastrado.
 - **Ajustes (Oficial):** nomes e textos das etapas, ocultar etapas sem uso, mensagens prontas, exportar CSV, apagar todos os processos, registro de alterações.
 - **Apagar:** um processo (Oficial, botão no cartão, digitando o protocolo) ou todos (Oficial, digitando APAGAR TUDO).
 - **Resumo diário:** e-mail às 8h (dias úteis) ao responsável com processos parados há mais de 30 dias ou com prazo de edital perto do fim. Vem **desligado por padrão**; cada um liga em *Minha conta*. Agendado por pg_cron (`resumo-diario-usucapioes`).

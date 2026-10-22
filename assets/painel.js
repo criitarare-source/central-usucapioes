@@ -1216,7 +1216,7 @@
     openGen('<h2>' + esc(titulo) + '</h2><div class="muted">' + esc(nome) + '</div>' +
       '<div class="codebox" id="cdBox">' + esc(fmtCode(code)) + '</div>' +
       '<div class="warnbox">Anote ou copie agora: por segurança, este código <b>não aparece de novo</b>. Se for perdido, gere outro (o anterior deixa de funcionar).</div>' +
-      '<p class="hint">Entregue ao advogado. Na página ' + esc(location.origin) + '/ ele clica em “Tenho mais de um processo” e digita o código para ver seus processos.</p>' +
+      '<p class="hint">Entregue ao advogado. Na página ' + esc(location.origin) + '/ ele clica em “Tenho um código de advogado” e digita o código (ou, se tiver e-mail cadastrado, só informa o e-mail) para ver seus processos.</p>' +
       '<div class="m-f"><button type="button" class="btn" id="cdCopy">Copiar código</button><button type="button" class="btn primary" data-close>Fechar</button></div>', function () {
         $('#cdCopy').onclick = function () {
           var done = function () { toast('Código copiado.'); };
