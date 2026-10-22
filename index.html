@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Acompanhe sua usucapião | Registro de Imóveis de Itararé</title>
+<meta name="description" content="Consulte o andamento do seu pedido de usucapião extrajudicial pelo número do protocolo.">
+<link rel="icon" href="assets/logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="app">
+  <main class="view" id="vPublic">
+    <div class="pub gut">
+      <section class="hero">
+        <div class="plaque"><img src="assets/logo.jpg" alt="Registro de Imóveis de Itararé"></div>
+        <h2>Acompanhe sua usucapião</h2>
+        <p>Digite o número do protocolo do seu pedido para ver em que etapa ele está e o que já foi feito.</p>
+        <form class="qform" id="qform" autocomplete="off">
+          <input id="pubProto" type="text" inputmode="numeric" maxlength="20" placeholder="Ex.: 52474" aria-label="Número do protocolo" required>
+          <button class="btn primary" type="submit" id="qbtn">Consultar</button>
+        </form>
+      </section>
+      <div id="out" aria-live="polite"></div>
+      <p class="note">Por segurança, esta página mostra apenas o andamento do pedido. Dados pessoais e documentos não aparecem aqui.</p>
+    </div>
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script src="assets/consulta.js"></script>
+</body>
+</html>
