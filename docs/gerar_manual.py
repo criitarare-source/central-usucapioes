@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.0"
+VERSAO = "1.1"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -60,7 +60,7 @@ story.append(sec("4. Dentro do cartão", [
 ]))
 story.append(sec("5. E-mails automáticos", [
     "A cada mudança de fase, prazo ou observação marcada, o requerente (e os outros e-mails do caso) recebe um aviso com o link. O advogado vinculado recebe <b>cópia</b>. Saem em cerca de 1 minuto.",
-    "Você recebe um <b>resumo diário</b> às 8h (dias úteis) com os seus processos parados ou com prazo perto. Dá para desligar em <b>Minha conta</b>.",
+    "O <b>resumo diário</b> por e-mail (às 8h, dias úteis, com os seus processos parados ou com prazo perto) vem <b>desligado</b>. Para receber, ative em <b>Minha conta</b>.",
     "Processos em “Exigências” há mais de 15 dias geram um lembrete automático ao requerente.",
 ]))
 story.append(sec("6. Advogados com vários processos", [

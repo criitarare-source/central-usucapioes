@@ -80,7 +80,7 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 - **Advogados:** aba *Advogados*. Cada um tem um código fixo de 12 caracteres (guardado só como hash, mostrado uma vez). Na página do cliente, “Tenho mais de um processo” lista os processos dele (protocolo, etapa e referência curta). O advogado recebe cópia dos e-mails se tiver e-mail cadastrado.
 - **Ajustes (Oficial):** nomes e textos das etapas, ocultar etapas sem uso, mensagens prontas, exportar CSV, apagar todos os processos, registro de alterações.
 - **Apagar:** um processo (Oficial, botão no cartão, digitando o protocolo) ou todos (Oficial, digitando APAGAR TUDO).
-- **Resumo diário:** e-mail às 8h (dias úteis) ao responsável com processos parados há mais de 30 dias ou com prazo de edital perto do fim. Cada um liga/desliga em *Minha conta*. Agendado por pg_cron (`resumo-diario-usucapioes`).
+- **Resumo diário:** e-mail às 8h (dias úteis) ao responsável com processos parados há mais de 30 dias ou com prazo de edital perto do fim. Vem **desligado por padrão**; cada um liga em *Minha conta*. Agendado por pg_cron (`resumo-diario-usucapioes`).
 - **Verificação em duas etapas (TOTP):** em *Minha conta*. Quando ativada, o banco só libera dados a sessões verificadas.
 
 ## SQL aplicado manualmente
