@@ -1,4 +1,4 @@
-# Central de Usucapiões Extrajudiciais
+# Visualizador de Usucapião
 
 Registro de Imóveis de Itararé.
 
