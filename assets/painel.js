@@ -464,11 +464,11 @@
 
   /* ---------- e-mails (Oficial) ---------- */
   function renderEmails() {
-    $('#body').innerHTML = '<div class="page gut"><h2>E-mails ao requerente</h2><p class="muted" style="margin:0">Um e-mail é pedido a cada mudança de fase ou de prazo. Aqui você confere se saiu.</p><div id="emTbl"><div class="loading">Carregando…</div></div></div>';
+    $('#body').innerHTML = '<div class="page gut"><h2>E-mails ao requerente</h2><p class="muted" style="margin:0">Um e-mail é pedido a cada mudança de fase ou de prazo e sai em até 1 minuto. Aqui você confere se saiu. Se falhar, o sistema tenta até 3 vezes.</p><div id="emTbl"><div class="loading">Carregando…</div></div></div>';
     sb.from('emails_enviados').select('id,destinatario,status,erro,criado_em,enviado_em,processos(protocolo)').order('criado_em', { ascending: false }).limit(100).then(function (r) {
       var el = $('#emTbl'); if (!el) return;
       if (r.error) { el.innerHTML = '<div class="msg err">' + esc(r.error.message) + '</div>'; return; }
-      var st = { pendente: 'Na fila', enviado: 'Enviado', falhou: 'Falhou' };
+      var st = { pendente: 'Na fila', enviando: 'Enviando', enviado: 'Enviado', falhou: 'Falhou' };
       el.innerHTML = r.data.length ? '<div class="tblwrap"><table class="tbl"><thead><tr><th>Quando</th><th>Protocolo</th><th>Para</th><th>Situação</th></tr></thead><tbody>' +
         r.data.map(function (e) {
           return '<tr><td>' + fmtDT(e.criado_em) + '</td><td>' + esc(e.processos ? e.processos.protocolo : '—') + '</td><td>' + esc(mask(e.destinatario)) + '</td><td><span class="pill sm st-' + e.status + '">' + st[e.status] + '</span>' + (e.erro ? ' <span class="muted small">' + esc(e.erro) + '</span>' : '') + '</td></tr>';

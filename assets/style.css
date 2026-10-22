@@ -249,3 +249,5 @@ details.prev summary{cursor:pointer;font-weight:600;font-size:13px}
 .pill.sm{font-size:11.5px;padding:2px 8px}
 .st-pendente{--c:var(--warn)} .st-enviado{--c:var(--ok)} .st-falhou{--c:var(--bad)}
 #root{height:100%}
+
+.st-enviando{--c:var(--gold)}
