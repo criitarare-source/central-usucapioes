@@ -87,6 +87,7 @@ Deno.serve(async (req) => {
   });
   const corpo = await req.json().catch(() => ({}));
   if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
+  if (corpo?.modo === "backup") return await backupSemanal(sb, json);
   const acessos = await enviarAcessos(sb);
   if (corpo?.modo === "acesso") return json({ acessos });
   const { data, error } = await sb.rpc("reservar_emails_v4", { p_limite: 20 });
@@ -166,4 +167,64 @@ async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unkno
     } catch { falhas++; }
   }
   return json({ resumo: true, enviados, falhas });
+}
+
+// Backup semanal: planilha CSV completa enviada SÓ ao e-mail do cartório (BACKUP_EMAIL ou e-mail do Oficial).
+// Roda no máximo 1 vez a cada 100 horas, mesmo se chamado de fora.
+async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {
+  const { data: liberado } = await sb.rpc("liberar_execucao", { p_nome: "backup", p_horas: 100 });
+  if (!liberado) return json({ backup: false, ignorado: "já enviado nesta semana" });
+  const reabrir = () => sb.from("execucoes_agendadas").update({ ultima: "2000-01-01T00:00:00Z" }).eq("nome", "backup");
+  try {
+    let dest = Deno.env.get("BACKUP_EMAIL") ?? "";
+    if (!dest) {
+      const { data: of } = await sb.from("perfis").select("email").eq("papel", "oficial").limit(1).maybeSingle();
+      dest = of?.email ?? "";
+    }
+    if (!dest) { await reabrir(); return json({ backup: false, erro: "sem e-mail de destino" }, 500); }
+    const [pr, fa, ad, pe, ex, pz] = await Promise.all([
+      sb.from("processos").select("*").order("protocolo").range(0, 4999),
+      sb.from("fases").select("id,nome"),
+      sb.from("advogados").select("id,nome"),
+      sb.from("perfis").select("id,nome"),
+      sb.from("pessoas_externas").select("id,nome"),
+      sb.from("prazos").select("processo_id,tipo,descricao,vence_em").eq("situacao", "aberto").order("vence_em"),
+    ]);
+    if (pr.error) throw new Error(pr.error.message);
+    const nome = (l: { id: number | string; nome: string }[] | null, id: unknown) => (l ?? []).find((x) => x.id === id)?.nome ?? "";
+    const cel = (v: unknown) => {
+      let t = v == null ? "" : String(v);
+      if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+      return '"' + t.replace(/"/g, '""') + '"';
+    };
+    const fmt = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "");
+    const tipoPz: Record<string, string> = { intimacao: "Intimação", edital: "Edital", exigencia: "Exigência", outro: "Prazo" };
+    const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo de usucapião", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em", "Notas internas"];
+    const linhas = (pr.data ?? []).map((p: Record<string, any>) => [
+      p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra ?? []).join(" | "), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
+      fmt(p.data_prenotacao), nome(ad.data, p.advogado_id), nome(fa.data, p.fase_id),
+      p.responsavel_id ? nome(pe.data, p.responsavel_id) : p.responsavel_externo_id ? nome(ex.data, p.responsavel_externo_id) : "",
+      (pz.data ?? []).filter((z: any) => z.processo_id === p.id).map((z: any) => `${tipoPz[z.tipo] ?? "Prazo"}${z.descricao ? " - " + z.descricao : ""}: ${fmt(z.vence_em)}`).join(" | "),
+      fmt(p.fase_desde), fmt(p.criado_em), p.notas_internas,
+    ].map(cel).join(";"));
+    const csv = "\uFEFF" + cab.map(cel).join(";") + "\r\n" + linhas.join("\r\n");
+    const bytes = new TextEncoder().encode(csv);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const hoje = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: FROM, to: [dest], subject: `Backup semanal da Central de Usucapiões (${linhas.length} processos)`,
+        text: `Segue em anexo a planilha completa dos processos em ${fmt(hoje)} (${linhas.length} processos).\n\nO arquivo contém dados pessoais (LGPD): guarde em local protegido, não encaminhe e apague e-mails antigos que não precisar manter.`,
+        attachments: [{ filename: `usucapioes-${hoje}.csv`, content: btoa(bin) }],
+      }),
+    });
+    if (!resp.ok) { await reabrir(); return json({ backup: false, erro: `Resend ${resp.status}` }, 500); }
+    return json({ backup: true, processos: linhas.length });
+  } catch (e) {
+    await reabrir();
+    return json({ backup: false, erro: String((e as Error).message ?? e) }, 500);
+  }
 }
