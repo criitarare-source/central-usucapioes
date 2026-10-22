@@ -216,7 +216,7 @@ async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unkn
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: FROM, to: [dest], subject: `Backup semanal da Visualizador de Usucapiões (${linhas.length} processos)`,
+        from: FROM, to: [dest], subject: `Backup semanal do Visualizador de Usucapiões (${linhas.length} processos)`,
         text: `Segue em anexo a planilha completa dos processos em ${fmt(hoje)} (${linhas.length} processos).\n\nO arquivo contém dados pessoais (LGPD): guarde em local protegido, não encaminhe e apague e-mails antigos que não precisar manter.`,
         attachments: [{ filename: `usucapioes-${hoje}.csv`, content: btoa(bin) }],
       }),
