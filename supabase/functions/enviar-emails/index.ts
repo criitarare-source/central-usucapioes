@@ -18,7 +18,7 @@ const fmtBR = (iso: string) =>
   new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 
 type Linha = {
-  email_id: number; destinatario: string; tentativas: number; copia: boolean; protocolo: string; requerente_nome: string;
+  email_id: number; destinatario: string; tentativas: number; copia: boolean; lembrete: boolean; protocolo: string; requerente_nome: string;
   tipo: string | null; fase_id: number | null; fase_nome: string | null; descricao: string | null;
   mensagem: string | null; prazo_edital: string | null; em: string | null;
 };
@@ -27,12 +27,21 @@ function montar(r: Linha) {
   const copia = !!r.copia;
   const primeiro = copia ? "" : (r.requerente_nome ?? "").trim().split(/\s+/)[0] || "";
   const ehPrazo = r.tipo === "prazo";
-  const titulo = ehPrazo ? "Prazo do edital atualizado" : (r.fase_nome ?? "Atualização do pedido");
+  const ehNota = r.tipo === "nota";
+  const lembrete = !!r.lembrete;
+  const titulo = lembrete ? "Seu pedido aguarda providências"
+    : ehPrazo ? "Prazo atualizado"
+    : ehNota ? "Observação do cartório"
+    : (r.fase_nome ?? "Atualização do pedido");
   const link = `${SITE}/?p=${encodeURIComponent(r.protocolo)}`;
-  const assunto = `${copia ? "Cópia · " : ""}Usucapião ${r.protocolo}: ${ehPrazo ? "prazo do edital atualizado" : titulo}`.slice(0, 120);
-  const quando = r.em ? fmtBR(r.em) : fmtBR(new Date().toISOString());
-  const desc = ehPrazo ? "" : (r.descricao ?? "");
-  const prazo = !ehPrazo && r.prazo_edital ? `O prazo do edital termina em ${fmtYMD(r.prazo_edital)}.` : "";
+  const assunto = `${copia ? "Cópia · " : ""}Usucapião ${r.protocolo}: ${ehPrazo ? "prazo atualizado" : titulo.toLowerCase()}`.slice(0, 120);
+  const quando = r.lembrete || !r.em ? fmtBR(new Date().toISOString()) : fmtBR(r.em);
+  const dias = lembrete && r.em ? Math.max(1, Math.floor((Date.now() - new Date(r.em).getTime()) / 86400000)) : 0;
+  const desc = lembrete
+    ? `O seu pedido está parado há ${dias} dias aguardando providências suas. ${r.descricao ?? ""}`.trim()
+    : (ehPrazo || ehNota ? "" : (r.descricao ?? ""));
+  const prazo = !ehPrazo && !ehNota && !lembrete && r.prazo_edital ? `O prazo do edital termina em ${fmtYMD(r.prazo_edital)}.` : "";
+  const rotulo = lembrete ? "Lembrete" : ehPrazo ? "Atualização" : ehNota ? "Observação" : "Nova etapa";
 
   const html = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#EDF0EA;font-family:Arial,Helvetica,sans-serif;color:#13261F">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#EDF0EA"><tr><td align="center" style="padding:24px 12px">
@@ -40,9 +49,9 @@ function montar(r: Linha) {
 <tr><td style="background:#0F3B2D;color:#F2F7F3;padding:18px 24px;font-size:18px;font-weight:bold">Registro de Imóveis de Itararé</td></tr>
 <tr><td style="padding:24px">
 <p style="margin:0 0 12px;font-size:16px">Olá${primeiro ? ", " + esc(primeiro) : ""}!</p>
-<p style="margin:0 0 16px;font-size:15px;line-height:1.5">${copia ? `Cópia do andamento do pedido de usucapião extrajudicial de <b>${esc(r.requerente_nome)}</b> (protocolo <b>${esc(r.protocolo)}</b>), enviada por você constar como representante.` : `O andamento do seu pedido de usucapião extrajudicial (protocolo <b>${esc(r.protocolo)}</b>) foi atualizado.`}</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5">${copia ? `Cópia do andamento do pedido de usucapião extrajudicial de <b>${esc(r.requerente_nome)}</b> (protocolo <b>${esc(r.protocolo)}</b>), enviada por você constar como representante.` : `${lembrete ? "Lembrete sobre" : "O andamento d"}${lembrete ? " o" : "o"} seu pedido de usucapião extrajudicial (protocolo <b>${esc(r.protocolo)}</b>)${lembrete ? "." : " foi atualizado."}`}</p>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F5F7F3;border-left:4px solid #A8751F;border-radius:6px"><tr><td style="padding:12px 16px">
-<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#66786F">${ehPrazo ? "Atualização" : "Nova etapa"}</div>
+<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#66786F">${rotulo}</div>
 <div style="font-size:18px;font-weight:bold;margin:2px 0">${esc(titulo)}</div>
 <div style="font-size:12px;color:#465850">${esc(quando)}</div></td></tr></table>
 ${desc ? `<p style="margin:16px 0 0;font-size:15px;line-height:1.5">${esc(desc)}</p>` : ""}
@@ -56,8 +65,9 @@ ${prazo ? `<p style="margin:16px 0 0;font-size:15px"><b>${esc(prazo)}</b></p>` :
     `Olá${primeiro ? ", " + primeiro : ""}!`,
     copia
       ? `Cópia do andamento do pedido de usucapião extrajudicial de ${r.requerente_nome} (protocolo ${r.protocolo}).`
+      : lembrete ? `Lembrete sobre o seu pedido de usucapião extrajudicial (protocolo ${r.protocolo}).`
       : `O andamento do seu pedido de usucapião extrajudicial (protocolo ${r.protocolo}) foi atualizado.`,
-    `${ehPrazo ? "Atualização" : "Nova etapa"}: ${titulo} (${quando})`,
+    `${rotulo}: ${titulo} (${quando})`,
     desc, r.mensagem ? `Mensagem do cartório: ${r.mensagem}` : "", prazo,
     `Acompanhe o pedido: ${link}`,
   ].filter(Boolean).join("\n\n");
@@ -77,7 +87,8 @@ Deno.serve(async (req) => {
   });
   const corpo = await req.json().catch(() => ({}));
   if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
-  const { data, error } = await sb.rpc("reservar_emails_v2", { p_limite: 20 });
+  if (corpo?.modo === "backup") return await backupSemanal(sb, json);
+  const { data, error } = await sb.rpc("reservar_emails_v3", { p_limite: 20 });
   if (error) return json({ erro: error.message }, 500);
 
   let enviados = 0, falhas = 0;
@@ -130,4 +141,58 @@ async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unkno
     } catch { falhas++; }
   }
   return json({ resumo: true, enviados, falhas });
+}
+
+// Backup semanal: CSV completo enviado ao Oficial.
+async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {
+  const [pr, fs, ad, pf, ex, pz] = await Promise.all([
+    sb.from("processos").select("*").order("protocolo"),
+    sb.from("fases").select("id,nome"),
+    sb.from("advogados").select("id,nome"),
+    sb.from("perfis").select("id,nome,email,papel,aprovado"),
+    sb.from("pessoas_externas").select("id,nome"),
+    sb.from("prazos").select("processo_id,tipo,descricao,vence_em").eq("situacao", "aberto"),
+  ]);
+  if (pr.error) return json({ erro: pr.error.message }, 500);
+  const fase = new Map((fs.data ?? []).map((f: any) => [f.id, f.nome]));
+  const adv = new Map((ad.data ?? []).map((a: any) => [a.id, a.nome]));
+  const perf = new Map((pf.data ?? []).map((u: any) => [u.id, u.nome]));
+  const ext = new Map((ex.data ?? []).map((u: any) => [u.id, u.nome]));
+  const prazos = new Map<number, string[]>();
+  for (const z of (pz.data ?? []) as any[]) {
+    const l = prazos.get(z.processo_id) ?? [];
+    l.push(`${z.tipo}${z.descricao ? " - " + z.descricao : ""}: ${fmtYMD(z.vence_em)}`);
+    prazos.set(z.processo_id, l);
+  }
+  const cel = (v: unknown) => {
+    let t = v == null ? "" : String(v);
+    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return `"${t.replace(/"/g, '""')}"`;
+  };
+  const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em"];
+  const linhas = ((pr.data ?? []) as any[]).map((p) => [
+    p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra ?? []).join(" | "), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
+    p.data_prenotacao ? fmtYMD(p.data_prenotacao) : "", adv.get(p.advogado_id) ?? "", fase.get(p.fase_id) ?? "",
+    perf.get(p.responsavel_id) ?? ext.get(p.responsavel_externo_id) ?? "", (prazos.get(p.id) ?? []).join(" | "),
+    fmtBR(p.fase_desde), fmtBR(p.criado_em),
+  ].map(cel).join(";"));
+  const csv = "\ufeff" + cab.map(cel).join(";") + "\r\n" + linhas.join("\r\n");
+  const bytes = new TextEncoder().encode(csv);
+  let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
+  const hoje = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+  const oficiais = ((pf.data ?? []) as any[]).filter((u) => u.papel === "oficial" && u.aprovado);
+  let enviados = 0;
+  for (const o of oficiais) {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: FROM, to: [o.email], subject: `Backup semanal da Central de Usucapiões (${hoje})`,
+        text: `Segue em anexo a planilha com os ${linhas.length} processos cadastrados. Ela contém dados pessoais: guarde em local seguro e apague este e-mail quando não precisar mais.`,
+        attachments: [{ filename: `usucapioes-${hoje}.csv`, content: btoa(bin) }],
+      }),
+    });
+    if (resp.ok) enviados++;
+  }
+  return json({ backup: true, processos: linhas.length, enviados });
 }

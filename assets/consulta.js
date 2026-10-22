@@ -38,30 +38,42 @@
     });
   }
 
-  function render(d, fases) {
+  var TIPO_PRAZO = { intimacao: 'Intimação', edital: 'Edital', exigencia: 'Exigência', outro: 'Prazo' };
+
+  function prazoChip(z) {
+    var n = daysLeft(z.vence_em);
+    return '<span class="chip ' + (n < 0 ? 'bad' : n <= 15 ? 'warn' : 'gold') + '">' + clock + ' ' + esc(TIPO_PRAZO[z.tipo] || 'Prazo') + (z.descricao ? ' (' + esc(z.descricao) + ')' : '') +
+      ': ' + fmtYMD(z.vence_em) + ' · ' + (n < 0 ? 'vencido' : n === 0 ? 'vence hoje' : 'faltam ' + n + ' ' + plural(n, 'dia', 'dias')) + '</span>';
+  }
+
+  function progress(d, fases) {
+    var cur = fases.find(function (f) { return f.id === d.fase_id; }) || { ordem: 0 };
+    var path = fases.filter(function (f) { return f.etapa_principal && !f.oculta; });
+    var on = path.filter(function (f) { return Number(f.ordem) <= Number(cur.ordem); }).length;
+    if (d.fase_id >= 9) return { html: '', on: on, total: path.length };
+    return {
+      on: on, total: path.length,
+      html: '<div><div class="seg" aria-hidden="true">' + path.map(function (f, i) { return '<i class="' + (i < on ? 'on' : '') + '"></i>'; }).join('') +
+        '</div><div class="seg-l">' + (d.fase_id === 8 ? 'Todas as etapas concluídas' : on + ' de ' + path.length + ' etapas concluídas') + '</div></div>'
+    };
+  }
+
+  // callout + prazos + linha do tempo (usado na consulta por protocolo e dentro de cada processo do advogado)
+  function timelineHTML(d, fases) {
     var byId = {}; fases.forEach(function (f) { byId[f.id] = f; });
     var cur = byId[d.fase_id] || { nome: 'Em andamento', ordem: 0 };
     var path = fases.filter(function (f) { return f.etapa_principal && !f.oculta; });
     var hist = d.historico || [];
     var lastMove = -1;
     hist.forEach(function (h, i) { if (h.tipo === 'fase') lastMove = i; });
-    var on = path.filter(function (f) { return Number(f.ordem) <= Number(cur.ordem); }).length;
 
     var items = hist.map(function (h, i) {
-      if (h.tipo === 'prazo') {
-        return '<li class="minor"><span class="tl-dot"></span><div class="tl-head"><span class="tl-t" style="font-size:14px">Prazo do edital ' +
-          (h.prazo_edital ? 'informado' : 'removido') + '</span><time>' + fmtDT(h.em) + '</time></div>' +
-          (h.prazo_edital ? '<p class="tl-d">O prazo termina em <b>' + fmtYMD(h.prazo_edital) + '</b>.</p>' : '') + '</li>';
+      if (h.tipo === 'prazo' || h.tipo === 'nota') {
+        return '<li class="minor"><span class="tl-dot"></span><div class="tl-head"><span class="tl-t" style="font-size:14px">' + (h.tipo === 'nota' ? 'Observação do cartório' : 'Prazo') +
+          '</span><time>' + fmtDT(h.em) + '</time></div>' + (h.mensagem ? '<p class="tl-d">' + esc(h.mensagem) + '</p>' : '') + '</li>';
       }
       var isCur = i === lastMove, cls = isCur && d.fase_id < 8 ? 'current' : 'done', extra = '';
-      if (h.prazo_edital && isCur && d.prazo_edital) {
-        var n = daysLeft(d.prazo_edital);
-        extra = '<div class="tl-pr"><span class="chip ' + (n < 0 ? 'bad' : n <= 15 ? 'warn' : 'gold') + '">' + clock +
-          ' Prazo do edital termina em ' + fmtYMD(d.prazo_edital) + ' · ' +
-          (n < 0 ? 'encerrado' : n === 0 ? 'termina hoje' : 'faltam ' + n + ' ' + plural(n, 'dia', 'dias')) + '</span></div>';
-      } else if (h.prazo_edital) {
-        extra = '<div class="tl-pr"><span class="chip gold">' + clock + ' Prazo do edital: ' + fmtYMD(h.prazo_edital) + '</span></div>';
-      }
+      if (h.prazo_edital) extra = '<div class="tl-pr"><span class="chip gold">' + clock + ' Prazo do edital: ' + fmtYMD(h.prazo_edital) + '</span></div>';
       return '<li class="' + cls + '"><span class="tl-dot">' + (cls === 'done' ? check : '') + '</span>' +
         '<div class="tl-head"><span class="tl-t">' + esc(h.fase_nome) + '</span><time>' + fmtDT(h.em) + '</time></div>' +
         '<p class="tl-d">' + esc(h.descricao) + '</p>' +
@@ -73,20 +85,95 @@
       return '<li class="upcoming"><span class="tl-dot"></span><div class="tl-head"><span class="tl-t">' + esc(f.nome) + '</span></div></li>';
     }).join('') : '';
 
-    var last = hist.length ? hist[hist.length - 1] : null, call = '';
+    var call = '';
     if (d.fase_id === 3) call = '<div class="callout">Ação necessária: o cartório aguarda providências suas. Leia a mensagem abaixo e procure o cartório.</div>';
     if (d.fase_id === 8) call = '<div class="callout ok">Seu pedido foi concluído. Procure o cartório para retirar a certidão.</div>';
     if (d.fase_id === 9) call = '<div class="callout bad">Seu pedido não seguirá pela via extrajudicial. Procure o cartório para orientações.</div>';
 
-    var seg = '';
-    if (d.fase_id < 9) {
-      seg = '<div><div class="seg" aria-hidden="true">' + path.map(function (f, i) { return '<i class="' + (i < on ? 'on' : '') + '"></i>'; }).join('') +
-        '</div><div class="seg-l">' + (d.fase_id === 8 ? 'Todas as etapas concluídas' : on + ' de ' + path.length + ' etapas concluídas') + '</div></div>';
-    }
+    var prazos = d.prazos || [];
+    var pbox = prazos.length ? '<div class="pbox"><b>Prazos em andamento</b><div class="pchips">' + prazos.map(prazoChip).join('') + '</div></div>' : '';
+    return call + pbox + '<ol class="tl" aria-label="Linha do tempo do pedido">' + items + upHTML + '</ol>';
+  }
+
+  function render(d, fases) {
+    var cur = fases.find(function (f) { return f.id === d.fase_id; }) || { nome: 'Em andamento' };
+    var hist = d.historico || [], last = hist.length ? hist[hist.length - 1] : null;
     return '<div class="result"><div class="res-h"><span class="k">Usucapião extrajudicial</span><h3>Protocolo ' + esc(d.protocolo) + '</h3>' +
       '<div class="meta"><span class="pill" style="--c:' + phaseColor(d.fase_id) + '">' + esc(cur.nome) + '</span>' +
-      (last ? '<span>Atualizado em ' + fmtDate(last.em) + '</span>' : '') + '</div>' + seg + '</div>' +
-      call + '<ol class="tl" aria-label="Linha do tempo do pedido">' + items + upHTML + '</ol></div>';
+      (last ? '<span>Atualizado em ' + fmtDate(last.em) + '</span>' : '') + '</div>' + progress(d, fases).html + '</div>' +
+      timelineHTML(d, fases) + '</div>';
+  }
+
+  /* ---------- área do advogado: vários processos abertos ao mesmo tempo ---------- */
+  function grupo(d) {
+    if (d.fase_id === 3) return 'acao';
+    if (d.fase_id === 8) return 'concluido';
+    if (d.fase_id === 9) return 'encerrado';
+    return 'andamento';
+  }
+  function urgente(d) {
+    if (d.fase_id === 3) return true;
+    return (d.prazos || []).some(function (z) { return daysLeft(z.vence_em) <= 7; });
+  }
+  function renderAdv(data, fases) {
+    var lista = (data.processos || []).slice().sort(function (a, b) {
+      var ua = urgente(a) ? 0 : 1, ub = urgente(b) ? 0 : 1;
+      return ua - ub || String(a.protocolo).localeCompare(String(b.protocolo), 'pt-BR', { numeric: true });
+    });
+    var byId = {}; fases.forEach(function (f) { byId[f.id] = f; });
+    var cont = { todos: lista.length, acao: 0, andamento: 0, concluido: 0, encerrado: 0 };
+    lista.forEach(function (d) { cont[grupo(d)]++; });
+    var ativos = cont.andamento + cont.acao;
+    var chips = [['todos', 'Todos'], ['acao', 'Precisam de ação'], ['andamento', 'Em andamento'], ['concluido', 'Concluídos'], ['encerrado', 'Encerrados']]
+      .filter(function (c) { return c[0] === 'todos' || cont[c[0]] > 0; })
+      .map(function (c) { return '<button type="button" class="fchip" data-f="' + c[0] + '" aria-pressed="' + (c[0] === 'todos') + '">' + c[1] + ' <b>' + cont[c[0]] + '</b></button>'; }).join('');
+
+    var itens = lista.map(function (d) {
+      var cur = byId[d.fase_id] || { nome: 'Em andamento' }, pr = progress(d, fases), prazos = d.prazos || [];
+      var hist = d.historico || [], last = hist.length ? hist[hist.length - 1] : null;
+      return '<li class="pitem" data-g="' + grupo(d) + '" data-q="' + esc((d.protocolo + ' ' + (d.referencia || '')).toLowerCase()) + '"><details' + (lista.length === 1 ? ' open' : '') + '>' +
+        '<summary><span class="pi-main"><b>' + esc(d.protocolo) + '</b>' + (d.referencia ? '<span class="pi-ref">' + esc(d.referencia) + '</span>' : '') + '</span>' +
+        '<span class="pill" style="--c:' + phaseColor(d.fase_id) + '">' + esc(cur.nome) + '</span>' +
+        '<span class="pi-meta">' + (pr.total && d.fase_id < 9 ? '<span class="pi-prog" aria-label="' + pr.on + ' de ' + pr.total + ' etapas"><span class="seg" aria-hidden="true">' + Array.from({ length: pr.total }, function (_, i) { return '<i class="' + (i < pr.on ? 'on' : '') + '"></i>'; }).join('') + '</span></span>' : '') +
+        (last ? '<span>Atualizado em ' + fmtDate(last.em) + '</span>' : '') + '</span>' +
+        (prazos.length ? '<span class="pi-prazos">' + prazos.slice(0, 2).map(prazoChip).join('') + (prazos.length > 2 ? '<span class="chip">+' + (prazos.length - 2) + '</span>' : '') + '</span>' : '') +
+        '<span class="pi-chev" aria-hidden="true"></span></summary>' +
+        '<div class="pi-body">' + timelineHTML(d, fases) + '</div></details></li>';
+    }).join('');
+
+    return '<div class="result adv"><div class="res-h"><span class="k">Área do advogado</span><h3>' + esc(data.nome) + '</h3>' +
+      '<div class="meta"><span><b>' + cont.todos + '</b> ' + plural(cont.todos, 'processo', 'processos') + '</span>' +
+      (ativos ? '<span><b>' + ativos + '</b> ' + plural(ativos, 'em andamento', 'em andamento') + '</span>' : '') +
+      (cont.acao ? '<span class="warn-t"><b>' + cont.acao + '</b> ' + plural(cont.acao, 'precisa de ação', 'precisam de ação') + '</span>' : '') +
+      (cont.concluido ? '<span><b>' + cont.concluido + '</b> ' + plural(cont.concluido, 'concluído', 'concluídos') + '</span>' : '') + '</div></div>' +
+      (lista.length ? '<div class="adv-tools"><div class="chips" id="advChips" role="group" aria-label="Filtrar processos">' + chips + '</div>' +
+        (lista.length > 4 ? '<input type="search" id="advQ" placeholder="Buscar protocolo ou referência" aria-label="Buscar processo">' : '') +
+        '<div class="adv-open"><button type="button" class="linkbtn" id="advAll">Abrir todos</button><button type="button" class="linkbtn" id="advNone">Fechar todos</button></div></div>' +
+        '<ul class="plist" id="advList">' + itens + '</ul><p class="adv-empty" id="advEmpty" hidden>Nenhum processo com esse filtro.</p>' :
+        '<p class="note" style="margin:12px 16px">Nenhum processo está ligado a este código no momento.</p>') + '</div>';
+  }
+  function bindAdv(out) {
+    var f = 'todos', q = '';
+    var apply = function () {
+      var n = 0;
+      out.querySelectorAll('.pitem').forEach(function (li) {
+        var ok = (f === 'todos' || li.dataset.g === f) && (!q || li.dataset.q.indexOf(q) >= 0);
+        li.hidden = !ok; if (ok) n++;
+      });
+      var e = $('#advEmpty'); if (e) e.hidden = n > 0;
+    };
+    out.querySelectorAll('#advChips .fchip').forEach(function (b) {
+      b.addEventListener('click', function () {
+        f = b.dataset.f;
+        out.querySelectorAll('#advChips .fchip').forEach(function (x) { x.setAttribute('aria-pressed', x === b); });
+        apply();
+      });
+    });
+    var qi = $('#advQ'); if (qi) qi.addEventListener('input', function () { q = qi.value.trim().toLowerCase(); apply(); });
+    var setAll = function (v) { out.querySelectorAll('.pitem:not([hidden]) details').forEach(function (d) { d.open = v; }); };
+    var a = $('#advAll'), n = $('#advNone');
+    if (a) a.addEventListener('click', function () { setAll(true); });
+    if (n) n.addEventListener('click', function () { setAll(false); });
   }
 
   var busy = false;
@@ -146,18 +233,8 @@
         return;
       }
       if (!r.data) { out.innerHTML = '<div class="notfound">Código não encontrado ou desativado. Confira o código ou procure o cartório.</div>'; return; }
-      var byId = {}; fases.forEach(function (f) { byId[f.id] = f; });
-      var lista = r.data.processos || [];
-      out.innerHTML = '<div class="result"><div class="res-h"><span class="k">Área do advogado</span><h3>' + esc(r.data.nome) + '</h3>' +
-        '<div class="meta"><span>' + lista.length + ' ' + plural(lista.length, 'processo', 'processos') + '</span></div></div>' +
-        (lista.length ? '<ul class="plist">' + lista.map(function (p) {
-          return '<li><button type="button" class="prow" data-p="' + esc(p.protocolo) + '"><span class="prow-main"><b>' + esc(p.protocolo) + '</b>' + (p.referencia ? '<span class="prow-ref">' + esc(p.referencia) + '</span>' : '') + '</span>' +
-            '<span class="pill" style="--c:' + phaseColor(p.fase_id) + '">' + esc((byId[p.fase_id] || {}).nome || p.fase_nome) + '</span>' +
-            '<span class="prow-d">Atualizado em ' + fmtDate(p.atualizado_em) + '</span></button></li>';
-        }).join('') + '</ul><p class="note" style="margin:12px 16px">Toque em um processo para ver a linha do tempo.</p>' : '<p class="note" style="margin:12px 16px">Nenhum processo está ligado a este código no momento.</p>') + '</div>';
-      out.querySelectorAll('.prow').forEach(function (b) {
-        b.addEventListener('click', function () { $('#pubProto').value = b.dataset.p; consultar(b.dataset.p); });
-      });
+      out.innerHTML = renderAdv(r.data, fases);
+      bindAdv(out);
       out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }).catch(function () {
       out.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>';

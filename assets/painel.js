@@ -33,7 +33,7 @@
   };
 
   /* ---------- estado ---------- */
-  function freshState() { return { me: null, fases: [], equipe: [], procs: [], advs: [], msgs: [], view: 'quadro', sub: 'fases' }; }
+  function freshState() { return { me: null, fases: [], equipe: [], procs: [], advs: [], msgs: [], externos: [], prazos: [], view: 'quadro', sub: 'fases' }; }
   var S = freshState();
   var F = { q: '', resp: 'all', att: false, tipo: '' };
   var dragging = false, needReload = false, channel = null, recovering = false;
@@ -44,8 +44,24 @@
   var userName = function (id) { var u = userById(id); return u ? u.nome : 'Sem responsável'; };
   var advById = function (id) { return S.advs.find(function (a) { return a.id === id; }); };
   var approved = function () { return S.equipe.filter(function (u) { return u.aprovado; }); };
+  var extById = function (id) { return S.externos.find(function (x) { return x.id === id; }); };
+  var respKey = function (p) { return p.responsavel_id ? 'u:' + p.responsavel_id : p.responsavel_externo_id ? 'x:' + p.responsavel_externo_id : ''; };
+  var keyName = function (k) {
+    if (!k) return 'Sem responsável';
+    if (k.charAt(0) === 'u') return userName(k.slice(2));
+    var x = extById(+k.slice(2)); return x ? x.nome : 'Pessoa removida';
+  };
+  var respName = function (p) { return keyName(respKey(p)); };
+  var respPayload = function (k) { return { responsavel_id: k && k.charAt(0) === 'u' ? k.slice(2) : null, responsavel_externo_id: k && k.charAt(0) === 'x' ? +k.slice(2) : null }; };
+  var openPrazos = function (pid) { return S.prazos.filter(function (z) { return z.processo_id === pid && z.situacao === 'aberto'; }).sort(function (a, b) { return a.vence_em < b.vence_em ? -1 : 1; }); };
+  var TIPO_PRAZO = { intimacao: 'Intimação', edital: 'Edital', exigencia: 'Exigência', outro: 'Prazo' };
   var userIdx = function (id) { var i = approved().findIndex(function (u) { return u.id === id; }); return Math.max(0, i); };
   var initials = function (n) { return n === 'Oficial' ? 'OF' : String(n).trim().split(/\s+/).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase(); };
+  var avatarKey = function (k) {
+    if (!k) return '<span class="av" aria-hidden="true">?</span>';
+    if (k.charAt(0) === 'u') return avatar(k.slice(2));
+    return '<span class="av ext" aria-hidden="true">' + esc(initials(keyName(k))) + '</span>';
+  };
   var avatar = function (id) { var n = userName(id); return '<span class="av" style="--i:' + (userIdx(id) % 4) + '" aria-hidden="true">' + (id ? esc(initials(n)) : '?') + '</span>'; };
   var isOficial = function () { return S.me && S.me.papel === 'oficial'; };
   var byId = function (id) { return S.procs.find(function (p) { return p.id === id; }); };
@@ -222,11 +238,13 @@
       sb.from('perfis').select('id,nome,email,papel,aprovado,criado_em,resumo_diario').order('nome'),
       sb.from('processos').select('*').order('ord'),
       sb.from('advogados').select('id,nome,email,copia_email,codigo_final,ativo,criado_em').order('nome'),
-      sb.from('mensagens_padrao').select('*').order('fase_id', { nullsFirst: true }).order('id')
+      sb.from('mensagens_padrao').select('*').order('fase_id', { nullsFirst: true }).order('id'),
+      sb.from('pessoas_externas').select('*').order('nome'),
+      sb.from('prazos').select('*').eq('situacao', 'aberto').order('vence_em')
     ]).then(function (r) {
       var bad = r.find(function (x) { return x.error; });
       if (bad) { $('#root').innerHTML = '<div class="loading">Não foi possível carregar os dados: ' + esc(bad.error.message) + '</div>'; return false; }
-      S.fases = r[0].data; S.equipe = r[1].data; S.procs = r[2].data; S.advs = r[3].data; S.msgs = r[4].data;
+      S.fases = r[0].data; S.equipe = r[1].data; S.procs = r[2].data; S.advs = r[3].data; S.msgs = r[4].data; S.externos = r[5].data; S.prazos = r[6].data;
       var me = S.equipe.find(function (u) { return u.id === S.me.id; }); if (me) S.me = Object.assign(S.me, me);
       return true;
     });
@@ -234,10 +252,11 @@
 
   function reloadProcs() {
     if (dragging) { needReload = true; return Promise.resolve(); }
-    return sb.from('processos').select('*').order('ord').then(function (r) {
-      if (r.error) return;
-      S.procs = r.data;
-      if (S.view === 'quadro' && $('#board')) { renderStats(); renderBoard(); }
+    return Promise.all([sb.from('processos').select('*').order('ord'), sb.from('prazos').select('*').eq('situacao', 'aberto').order('vence_em'), sb.from('pessoas_externas').select('*').order('nome')]).then(function (rs) {
+      var r = rs[0]; if (r.error) return;
+      S.procs = r.data; if (!rs[1].error) S.prazos = rs[1].data; if (!rs[2].error) S.externos = rs[2].data;
+      if (S.view === 'quadro' && $('#board')) { renderStats(); renderBoard(); renderResps(); }
+      else if (S.view === 'prazos' && !$('#dDetail').open) renderPrazos();
       var d = $('#dDetail');
       if (d.open && d.dataset.id && !d.dataset.dirty) fillDetail(+d.dataset.id);
     });
@@ -245,9 +264,11 @@
   var reloadT;
   function subscribe() {
     if (channel) sb.removeChannel(channel);
-    channel = sb.channel('processos-ao-vivo').on('postgres_changes', { event: '*', schema: 'public', table: 'processos' }, function () {
-      clearTimeout(reloadT); reloadT = setTimeout(reloadProcs, 300);
-    }).subscribe();
+    var ping = function () { clearTimeout(reloadT); reloadT = setTimeout(reloadProcs, 300); };
+    channel = sb.channel('processos-ao-vivo')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'processos' }, ping)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'prazos' }, ping)
+      .subscribe();
   }
 
   /* ---------- estrutura do app ---------- */
@@ -255,7 +276,7 @@
 
   function renderApp() {
     var tab = function (v, label, extra) { return '<button class="tab" role="tab" data-view="' + v + '" aria-selected="' + (S.view === v) + '">' + label + (extra || '') + '</button>'; };
-    var tabs = tab('quadro', 'Quadro') + tab('advogados', 'Advogados');
+    var tabs = tab('quadro', 'Quadro') + tab('prazos', 'Prazos') + tab('advogados', 'Advogados');
     if (isOficial()) {
       var n = pendentesCount();
       tabs += tab('equipe', 'Equipe', n ? '<span class="badge-n">' + n + '</span>' : '') + tab('emails', 'E-mails') + tab('ajustes', 'Ajustes');
@@ -274,6 +295,7 @@
     if (v === 'equipe' && isOficial()) renderEquipe();
     else if (v === 'emails' && isOficial()) renderEmails();
     else if (v === 'ajustes' && isOficial()) renderAjustes();
+    else if (v === 'prazos') renderPrazos();
     else if (v === 'advogados') renderAdvogados();
     else if (v === 'conta') renderConta();
     else renderQuadro();
@@ -282,10 +304,11 @@
   /* ---------- quadro ---------- */
   function attention(p) {
     if (p.fase_id >= 8) return null;
-    if (p.fase_id === 5 && p.prazo_edital) {
-      var d = daysLeft(p.prazo_edital);
-      if (d < 0) return { t: 'Prazo do edital encerrado', c: 'bad' };
-      if (d <= 15) return { t: d === 0 ? 'Prazo termina hoje' : 'Faltam ' + d + ' ' + plural(d, 'dia', 'dias'), c: 'warn' };
+    var pz = openPrazos(p.id)[0];
+    if (pz) {
+      var d = daysLeft(pz.vence_em), nm = TIPO_PRAZO[pz.tipo].toLowerCase();
+      if (d < 0) return { t: 'Prazo (' + nm + ') vencido', c: 'bad' };
+      if (d <= 15) return { t: d === 0 ? 'Prazo (' + nm + ') vence hoje' : 'Prazo (' + nm + '): ' + d + ' ' + plural(d, 'dia', 'dias'), c: 'warn' };
     }
     if (p.fase_id !== 3 && daysSince(p.fase_desde) > 30) return { t: 'Parado há ' + daysSince(p.fase_desde) + ' dias', c: 'warn' };
     return null;
@@ -295,8 +318,8 @@
     return [p.protocolo, p.requerente_nome, p.imovel, p.matricula, p.referencia, p.tipo_usucapiao, a ? a.nome : '', p.requerente_email].join(' ').toLowerCase();
   }
   function visible(p) {
-    if (F.resp === 'none') { if (p.responsavel_id) return false; }
-    else if (F.resp !== 'all' && p.responsavel_id !== F.resp) return false;
+    if (F.resp === 'none') { if (respKey(p)) return false; }
+    else if (F.resp !== 'all' && respKey(p) !== F.resp) return false;
     if (F.tipo && p.tipo_usucapiao !== F.tipo) return false;
     if (F.att && !attention(p) && p.fase_id !== 3) return false;
     if (F.q && searchText(p).indexOf(F.q.toLowerCase()) < 0) return false;
@@ -321,38 +344,40 @@
 
   function renderResps() {
     $('#resps').innerHTML = '<button type="button" class="fchip plain" data-resp="all" aria-pressed="' + (F.resp === 'all') + '">Todos</button>' +
-      approved().map(function (u) { return '<button type="button" class="fchip" data-resp="' + u.id + '" aria-pressed="' + (F.resp === u.id) + '">' + avatar(u.id) + esc(u.nome) + '</button>'; }).join('') +
+      approved().map(function (u) { return '<button type="button" class="fchip" data-resp="u:' + u.id + '" aria-pressed="' + (F.resp === 'u:' + u.id) + '">' + avatar(u.id) + esc(u.nome) + '</button>'; }).join('') +
+      S.externos.filter(function (x) { return x.ativo || S.procs.some(function (p) { return p.responsavel_externo_id === x.id; }); }).map(function (x) { return '<button type="button" class="fchip" data-resp="x:' + x.id + '" aria-pressed="' + (F.resp === 'x:' + x.id) + '">' + avatarKey('x:' + x.id) + esc(x.nome) + '</button>'; }).join('') +
       '<button type="button" class="fchip plain" data-resp="none" aria-pressed="' + (F.resp === 'none') + '">Sem responsável</button>';
     document.querySelectorAll('#resps .fchip').forEach(function (b) { b.onclick = function () { F.resp = b.dataset.resp; renderResps(); renderBoard(); }; });
   }
 
   function renderStats() {
     var act = S.procs.filter(function (p) { return p.fase_id < 8; });
-    var venc = act.filter(function (p) { return p.fase_id === 5 && p.prazo_edital && daysLeft(p.prazo_edital) <= 15; }).length;
+    var venc = act.filter(function (p) { var z = openPrazos(p.id)[0]; return z && daysLeft(z.vence_em) <= 15; }).length;
     var par = act.filter(function (p) { return p.fase_id !== 3 && daysSince(p.fase_desde) > 30; }).length;
     var aw = S.procs.filter(function (p) { return p.fase_id === 3; }).length;
     var done = S.procs.filter(function (p) { return p.fase_id === 8; }).length;
-    var sem = act.filter(function (p) { return !p.responsavel_id; }).length;
+    var sem = act.filter(function (p) { return !respKey(p); }).length;
     var st = function (n, l, a) { return '<div class="stat ' + (a && n ? 'alert' : '') + '"><b>' + n + '</b><span>' + l + '</span></div>'; };
-    $('#stats').innerHTML = st(act.length, 'em andamento') + st(venc, 'editais vencendo em 15 dias', 1) + st(par, 'parados há mais de 30 dias', 1) + st(sem, 'sem escrevente responsável', 1) + st(aw, 'aguardando o requerente') + st(done, 'concluídos');
+    $('#stats').innerHTML = st(act.length, 'em andamento') + st(venc, 'prazos vencendo em 15 dias', 1) + st(par, 'parados há mais de 30 dias', 1) + st(sem, 'sem escrevente responsável', 1) + st(aw, 'aguardando o requerente') + st(done, 'concluídos');
   }
 
   function cardHTML(p) {
     var a = attention(p), tags = [];
     if (p.fase_id === 3) tags.push('<span class="chip warn">Aguardando requerente</span>');
-    if (p.fase_id === 5) {
-      if (p.prazo_edital) {
-        var d = daysLeft(p.prazo_edital);
-        tags.push('<span class="chip ' + (d < 0 ? 'bad' : d <= 15 ? 'warn' : 'gold') + '">' + ICON.clock + ' Edital até ' + fmtYMD(p.prazo_edital).slice(0, 5) + ' · ' + (d < 0 ? 'encerrado' : d === 0 ? 'hoje' : d + ' ' + plural(d, 'dia', 'dias')) + '</span>');
-      } else tags.push('<span class="chip">Prazo do edital não informado</span>');
-    }
-    if (a && p.fase_id !== 5) tags.push('<span class="chip ' + a.c + '">' + esc(a.t) + '</span>');
+    var pzs = openPrazos(p.id);
+    pzs.slice(0, 2).forEach(function (z) {
+      var d = daysLeft(z.vence_em);
+      tags.push('<span class="chip ' + (d < 0 ? 'bad' : d <= 15 ? 'warn' : 'gold') + '">' + ICON.clock + ' ' + TIPO_PRAZO[z.tipo] + ' até ' + fmtYMD(z.vence_em).slice(0, 5) + ' · ' + (d < 0 ? 'vencido' : d === 0 ? 'hoje' : d + ' ' + plural(d, 'dia', 'dias')) + '</span>');
+    });
+    if (pzs.length > 2) tags.push('<span class="chip">+' + (pzs.length - 2) + ' ' + plural(pzs.length - 2, 'prazo', 'prazos') + '</span>');
+    if (p.fase_id === 5 && !pzs.some(function (z) { return z.tipo === 'edital'; })) tags.push('<span class="chip">Prazo do edital não informado</span>');
+    if (a && !pzs.length) tags.push('<span class="chip ' + a.c + '">' + esc(a.t) + '</span>');
     var age = daysSince(p.fase_desde);
-    return '<article class="card" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(userName(p.responsavel_id)) + '">' +
+    return '<article class="card" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
       '<div class="card-top"><span class="proto">' + esc(p.protocolo) + '</span><span class="grip" aria-hidden="true">' + ICON.grip + '</span></div>' +
       '<div class="nome">' + esc(p.requerente_nome) + '</div><div class="imovel">' + esc(p.referencia || p.imovel) + '</div>' +
       (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
-      '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar o escrevente responsável">' + avatar(p.responsavel_id) + '<span class="resp">' + esc(userName(p.responsavel_id)) + '</span></button><span class="age">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
+      '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
   }
 
   var sortables = [], lastDrag = 0;
@@ -390,31 +415,70 @@
     });
   }
 
-  /* ---------- atribuir escrevente ---------- */
-  function setResponsavel(p, uid) {
-    return sb.from('processos').update({ responsavel_id: uid || null }).eq('id', p.id).then(function (r) {
+  /* ---------- atribuir responsável (com ou sem conta) ---------- */
+  function setResponsavel(p, key) {
+    return sb.from('processos').update(respPayload(key)).eq('id', p.id).then(function (r) {
       if (r.error) { toast(errText(r.error)); return false; }
-      p.responsavel_id = uid || null;
-      toast(uid ? 'Processo ' + p.protocolo + ' agora está com ' + userName(uid) + '.' : 'Processo ' + p.protocolo + ' ficou sem responsável.');
-      if ($('#stats')) { renderStats(); renderBoard(); }
+      var pl = respPayload(key); p.responsavel_id = pl.responsavel_id; p.responsavel_externo_id = pl.responsavel_externo_id;
+      toast(key ? 'Processo ' + p.protocolo + ' agora está com ' + keyName(key) + '.' : 'Processo ' + p.protocolo + ' ficou sem responsável.');
+      if ($('#stats')) { renderStats(); renderBoard(); renderResps(); }
       return true;
     });
   }
-  function openAssign(id) {
-    var p = byId(id); if (!p) return;
-    var opts = approved().map(function (u) {
-      return '<label class="opt-row"><input type="radio" name="asg" value="' + u.id + '"' + (u.id === p.responsavel_id ? ' checked' : '') + '>' + avatar(u.id) + '<span>' + esc(u.nome) + (u.id === S.me.id ? ' (você)' : '') + '</span></label>';
-    }).join('') + '<label class="opt-row"><input type="radio" name="asg" value=""' + (p.responsavel_id ? '' : ' checked') + '><span class="av" aria-hidden="true">?</span><span>Sem responsável</span></label>';
-    openGen('<h2>Com quem está o processo?</h2><div class="muted">' + esc(p.protocolo) + ' · ' + esc(p.requerente_nome) + '</div><div class="opt-list">' + opts + '</div>' +
-      '<p class="hint">Vale para qualquer escrevente aprovado, não só para quem está logado. O resumo diário e os filtros usam esta informação.</p>' +
-      '<div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" id="asOk">Salvar</button></div>', function (d) {
-        $('#asOk').onclick = function () {
-          var v = d.querySelector('input[name=asg]:checked'); var uid = v ? v.value : '';
-          if ((uid || null) === (p.responsavel_id || null)) { d.close(); return; }
-          $('#asOk').disabled = true;
-          setResponsavel(p, uid).then(function (ok) { if (ok) { d.close(); var dd = $('#dDetail'); if (dd.open && +dd.dataset.id === p.id) fillDetail(p.id); } else $('#asOk').disabled = false; });
+  function respOptions(sel) {
+    return '<option value=""' + (sel ? '' : ' selected') + '>Sem responsável</option>' +
+      '<optgroup label="Escreventes com acesso">' + approved().map(function (u) { return '<option value="u:' + u.id + '"' + (sel === 'u:' + u.id ? ' selected' : '') + '>' + esc(u.nome) + (u.id === S.me.id ? ' (você)' : '') + '</option>'; }).join('') + '</optgroup>' +
+      (S.externos.some(function (x) { return x.ativo || sel === 'x:' + x.id; }) ? '<optgroup label="Sem conta no painel">' + S.externos.filter(function (x) { return x.ativo || sel === 'x:' + x.id; }).map(function (x) { return '<option value="x:' + x.id + '"' + (sel === 'x:' + x.id ? ' selected' : '') + '>' + esc(x.nome) + '</option>'; }).join('') + '</optgroup>' : '') +
+      '<option value="__novo">+ Adicionar pessoa sem conta…</option>';
+  }
+  function addExterno(done) {
+    openGen('<h2>Adicionar pessoa sem conta</h2><div class="muted">Para quem trabalha nos processos mas não usa o painel (estagiário, escrevente de outro setor, etc.).</div>' +
+      '<label for="exNome">Nome</label><input type="text" id="exNome" maxlength="120">' +
+      '<label for="exMail">E-mail <span class="opt">(opcional, para receber o resumo diário)</span></label><input type="email" id="exMail" maxlength="200">' +
+      '<div class="err" id="exErr" role="alert"></div><div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" id="exOk">Adicionar</button></div>', function (d) {
+        $('#exNome').focus();
+        $('#exOk').onclick = function () {
+          var nome = $('#exNome').value.trim(), mail = $('#exMail').value.trim();
+          if (nome.length < 2) return ($('#exErr').textContent = 'Informe o nome.');
+          if (mail && !EMAIL_RE.test(mail)) return ($('#exErr').textContent = 'E-mail inválido.');
+          $('#exOk').disabled = true;
+          sb.from('pessoas_externas').insert({ nome: nome, email: mail || null }).select().single().then(function (r) {
+            if (r.error) { $('#exOk').disabled = false; return ($('#exErr').textContent = errText(r.error)); }
+            S.externos.push(r.data); S.externos.sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+            d.close(); done('x:' + r.data.id);
+          });
         };
       });
+  }
+  function openAssign(id) {
+    var p = byId(id); if (!p) return;
+    var cur = respKey(p);
+    var row = function (k, nome) {
+      return '<label class="opt-row"><input type="radio" name="asg" value="' + k + '"' + (k === cur ? ' checked' : '') + '>' + avatarKey(k) + '<span>' + esc(nome) + '</span></label>';
+    };
+    var opts = approved().map(function (u) { return row('u:' + u.id, u.nome + (u.id === S.me.id ? ' (você)' : '')); }).join('') +
+      S.externos.filter(function (x) { return x.ativo || cur === 'x:' + x.id; }).map(function (x) { return row('x:' + x.id, x.nome + ' (sem conta)'); }).join('') + row('', 'Sem responsável');
+    openGen('<h2>Com quem está o processo?</h2><div class="muted">' + esc(p.protocolo) + ' · ' + esc(p.requerente_nome) + '</div><div class="opt-list">' + opts + '</div>' +
+      '<button type="button" class="linkbtn" id="asNovo">+ Adicionar pessoa sem conta no painel</button>' +
+      '<p class="hint">Pode ser qualquer pessoa, não só quem está logado. Quem não tem conta aparece com avatar cinza.</p>' +
+      '<div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" id="asOk">Salvar</button></div>', function (d) {
+        $('#asNovo').onclick = function () { addExterno(function (k) { setResponsavel(p, k).then(function () { var dd = $('#dDetail'); if (dd.open && +dd.dataset.id === p.id) fillDetail(p.id); }); }); };
+        $('#asOk').onclick = function () {
+          var v = d.querySelector('input[name=asg]:checked'); var k = v ? v.value : '';
+          if (k === cur) { d.close(); return; }
+          $('#asOk').disabled = true;
+          setResponsavel(p, k).then(function (ok) { if (ok) { d.close(); var dd = $('#dDetail'); if (dd.open && +dd.dataset.id === p.id) fillDetail(p.id); } else $('#asOk').disabled = false; });
+        };
+      });
+  }
+  // select com opção "+ Adicionar pessoa": chama onPick(key) ao escolher/criar
+  function bindRespSelect(sel, current, onPick) {
+    sel.onchange = function () {
+      if (sel.value === '__novo') {
+        sel.value = current;
+        addExterno(function (k) { onPick(k); });
+      } else onPick(sel.value);
+    };
   }
 
   /* ---------- mover processo ---------- */
@@ -484,10 +548,11 @@
   }
 
   /* ---------- detalhe ---------- */
-  var FIELD = { protocolo: 'Protocolo', requerente_nome: 'Requerente', requerente_email: 'E-mail', emails_extra: 'E-mails adicionais', imovel: 'Imóvel', matricula: 'Matrícula', tipo_usucapiao: 'Tipo', data_prenotacao: 'Data de prenotação', referencia: 'Referência', advogado_id: 'Advogado', responsavel_id: 'Responsável' };
+  var FIELD = { protocolo: 'Protocolo', requerente_nome: 'Requerente', requerente_email: 'E-mail', emails_extra: 'E-mails adicionais', imovel: 'Imóvel', matricula: 'Matrícula', tipo_usucapiao: 'Tipo', data_prenotacao: 'Data de prenotação', referencia: 'Referência', advogado_id: 'Advogado', responsavel_id: 'Responsável', responsavel_externo_id: 'Responsável (sem conta)' };
   function fmtVal(c, v) {
     if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '—';
     if (c === 'responsavel_id') return userName(v);
+    if (c === 'responsavel_externo_id') { var xx = extById(v); return xx ? xx.nome : '#' + v; }
     if (c === 'advogado_id') { var a = advById(v); return a ? a.nome : '#' + v; }
     if (c === 'data_prenotacao') return fmtYMD(v);
     if (Array.isArray(v)) return v.join(', ');
@@ -518,22 +583,46 @@
     }).join('') + '</select>';
   }
 
+  function prazosHTML(all) {
+    var abertos = all.filter(function (z) { return z.situacao === 'aberto'; }), fechados = all.filter(function (z) { return z.situacao !== 'aberto'; });
+    var linha = function (z, acoes) {
+      var d = daysLeft(z.vence_em), cls = z.situacao !== 'aberto' ? '' : d < 0 ? 'bad' : d <= 15 ? 'warn' : 'gold';
+      return '<li class="pz-row"><div><b>' + TIPO_PRAZO[z.tipo] + '</b>' + (z.descricao ? ' · ' + esc(z.descricao) : '') + '<div class="muted small">Vence em ' + fmtYMD(z.vence_em) +
+        (z.situacao === 'aberto' ? ' · <span class="chip ' + cls + '">' + (d < 0 ? 'vencido há ' + (-d) + ' ' + plural(-d, 'dia', 'dias') : d === 0 ? 'vence hoje' : 'faltam ' + d + ' ' + plural(d, 'dia', 'dias')) + '</span>' : ' · ' + (z.situacao === 'cumprido' ? 'cumprido' : 'cancelado')) + '</div></div>' + (acoes || '') + '</li>';
+    };
+    return (abertos.length ? '<ul class="pz-list">' + abertos.map(function (z) {
+        return linha(z, '<div class="pz-acts"><button type="button" class="btn sm" data-pz="' + z.id + '" data-sit="cumprido">Cumprido</button><button type="button" class="btn sm ghost" data-pz="' + z.id + '" data-sit="cancelado">Cancelar</button></div>');
+      }).join('') + '</ul>' : '<p class="muted small" style="margin:0">Nenhum prazo em aberto.</p>') +
+      (fechados.length ? '<details class="prev"><summary>Prazos encerrados (' + fechados.length + ')</summary><ul class="pz-list">' + fechados.map(function (z) { return linha(z); }).join('') + '</ul></details>' : '');
+  }
+  function prazoForm() {
+    return '<div class="pz-form"><div class="grid2"><div><label for="pzTipo">Novo prazo</label><select id="pzTipo"><option value="intimacao">Intimação</option><option value="edital">Edital</option><option value="exigencia">Exigência</option><option value="outro">Outro</option></select></div>' +
+      '<div><label for="pzData">Vence em</label><input type="date" id="pzData"></div></div>' +
+      '<label for="pzDesc">Descrição <span class="opt">(opcional, ex.: Confrontante Silva)</span></label><input type="text" id="pzDesc" maxlength="120">' +
+      '<label class="check"><input type="checkbox" id="pzMail" checked> Avisar o requerente por e-mail</label>' +
+      '<p class="hint">O cliente vê o tipo, a descrição e a data na consulta. Não escreva dados pessoais de terceiros.</p>' +
+      '<div class="err" id="pzErr" role="alert"></div><button type="button" class="btn sm primary" id="pzAdd">Adicionar prazo</button></div>';
+  }
+
   function fillDetail(id) {
     var p = byId(id); if (!p) { $('#dDetail').close(); return; }
     var d = $('#dDetail'); d.dataset.id = id; delete d.dataset.dirty;
     Promise.all([
       sb.from('historico').select('*').eq('processo_id', id).order('em', { ascending: false }),
-      sb.from('auditoria').select('*').eq('processo_id', id).order('em', { ascending: false }).limit(50)
+      sb.from('auditoria').select('*').eq('processo_id', id).order('em', { ascending: false }).limit(50),
+      sb.from('prazos').select('*').eq('processo_id', id).order('vence_em')
     ]).then(function (rs) {
       if (!d.open || +d.dataset.id !== id) return;
-      var hist = rs[0].data || [], aud = rs[1].data || [], pa = byId(id) || p;
+      var hist = rs[0].data || [], aud = rs[1].data || [], pzAll = rs[2].data || [], pa = byId(id) || p;
       var fasesOpt = S.fases.filter(function (f) { return !f.oculta || f.id === pa.fase_id; });
       d.innerHTML = '<div class="sh"><div class="sh-h"><div><h2>' + esc(pa.protocolo) + '</h2><div class="muted">' + esc(pa.requerente_nome) + '</div></div><button type="button" class="x" id="dtClose" aria-label="Fechar">' + ICON.x + '</button></div><div class="sh-b">' +
         '<h3>Andamento</h3><label for="dtFase">Fase atual</label><select id="dtFase">' + fasesOpt.map(function (f) { return '<option value="' + f.id + '"' + (f.id === pa.fase_id ? ' selected' : '') + '>' + esc(f.nome) + '</option>'; }).join('') + '</select>' +
         '<p class="hint">Ao escolher outra fase, o sistema pede a mensagem ao requerente antes de confirmar.</p>' +
-        '<label for="dtResp">Com quem está o processo</label><select id="dtResp"><option value=""' + (pa.responsavel_id ? '' : ' selected') + '>Sem responsável</option>' + approved().map(function (u) { return '<option value="' + u.id + '"' + (u.id === pa.responsavel_id ? ' selected' : '') + '>' + esc(u.nome) + (u.id === S.me.id ? ' (você)' : '') + '</option>'; }).join('') + '</select>' +
-        '<p class="hint">Pode ser qualquer escrevente, não só quem está logado.</p>' +
-        (pa.fase_id === 5 ? '<label for="dtPrazo">Prazo do edital termina em <span class="opt">(opcional)</span></label><div class="row2"><input type="date" id="dtPrazo" value="' + esc(pa.prazo_edital || '') + '"><button type="button" class="btn sm" id="dtPrazoBtn">Salvar prazo</button></div><p class="hint">O requerente recebe a data por e-mail e a vê na consulta pública.</p>' : '') +
+        '<label for="dtResp">Com quem está o processo</label><select id="dtResp">' + respOptions(respKey(pa)) + '</select>' +
+        '<p class="hint">Pode ser qualquer pessoa, mesmo sem conta no painel.</p>' +
+        '<h3>Observação no andamento</h3><label for="dtObs">Aparece na linha do tempo do cliente</label><textarea id="dtObs" rows="2" maxlength="600" placeholder="Ex.: Edital publicado, prazo até 20/12."></textarea>' +
+        '<label class="check"><input type="checkbox" id="dtObsMail"> Avisar o requerente por e-mail</label><div class="err" id="dtObsErr" role="alert"></div><button type="button" class="btn sm" id="dtObsBtn">Registrar no andamento</button>' +
+        '<h3>Prazos</h3>' + prazosHTML(pzAll) + prazoForm() +
         '<h3>Dados do processo</h3><form id="fDados" novalidate>' +
         '<label for="edProto">Número do protocolo</label><input type="text" id="edProto" inputmode="numeric" maxlength="12" value="' + esc(pa.protocolo) + '">' +
         '<p class="hint" id="edProtoHint">Mudar o protocolo muda o número que o requerente digita na página. Links de e-mails já enviados deixam de funcionar. A troca fica registrada.</p>' +
@@ -550,7 +639,7 @@
         '<h3>Notas internas</h3><label for="dtNotes">Só a equipe vê estas notas</label><textarea id="dtNotes" rows="3" maxlength="5000" placeholder="Anotações do processo">' + esc(pa.notas_internas) + '</textarea><div class="saved" id="dtSaved"></div>' +
         '<p><a class="btn sm" style="display:inline-block;text-decoration:none" href="/?p=' + encodeURIComponent(pa.protocolo) + '" target="_blank" rel="noopener">Ver como o requerente vê</a></p>' +
         '<h3>Histórico do andamento</h3><p class="hint">O que o requerente vê. Não pode ser editado; se algo estiver errado, registre uma nova movimentação.</p><ul class="hist">' + hist.map(function (h) {
-          return '<li><b>' + (h.tipo === 'prazo' ? 'Prazo do edital atualizado' : esc(faseById(h.fase_id).nome)) + '</b><time>' + fmtDT(h.em) + ' · ' + esc(userName(h.por)) + (h.email_solicitado ? ' · e-mail pedido' : '') + '</time>' +
+          return '<li><b>' + (h.tipo === 'prazo' ? 'Prazo' : h.tipo === 'nota' ? 'Observação' : esc(faseById(h.fase_id).nome)) + '</b><time>' + fmtDT(h.em) + ' · ' + esc(userName(h.por)) + (h.email_solicitado ? ' · e-mail pedido' : '') + '</time>' +
             (h.mensagem ? '<p>' + esc(h.mensagem) + '</p>' : '') + (h.prazo_edital && h.tipo === 'fase' ? '<p>Prazo do edital: ' + fmtYMD(h.prazo_edital) + '</p>' : '') + '</li>';
         }).join('') + '</ul>' +
         '<h3>Alterações nos dados</h3>' + auditHTML(aud) +
@@ -560,20 +649,38 @@
       $('#dtClose').onclick = function () { d.close(); };
       d.oninput = function () { d.dataset.dirty = '1'; };
       $('#dtFase').onchange = function (e) { var to = +e.target.value; e.target.value = pa.fase_id; openMove(pa.id, to, null); };
-      $('#dtResp').onchange = function (e) { setResponsavel(pa, e.target.value).then(function () { delete d.dataset.dirty; }); };
+      bindRespSelect($('#dtResp'), respKey(pa), function (k) { setResponsavel(pa, k).then(function () { delete d.dataset.dirty; fillDetail(pa.id); }); });
+      $('#dtObsBtn').onclick = function () {
+        var t = $('#dtObs').value.trim(), mail = $('#dtObsMail').checked;
+        if (t.length < 2) return ($('#dtObsErr').textContent = 'Escreva a observação.');
+        this.disabled = true;
+        sb.rpc('anotar_andamento', { p_id: pa.id, p_texto: t, p_email: mail }).then(function (r) {
+          if (r.error) { $('#dtObsBtn').disabled = false; return ($('#dtObsErr').textContent = errText(r.error)); }
+          toast('Observação registrada no andamento.' + (mail ? ' E-mails na fila de envio.' : '')); fillDetail(pa.id);
+        });
+      };
+      var pAdd = $('#pzAdd');
+      if (pAdd) pAdd.onclick = function () {
+        var desc = $('#pzDesc').value.trim(), venc = $('#pzData').value;
+        if (!venc) return ($('#pzErr').textContent = 'Informe a data de vencimento.');
+        this.disabled = true;
+        sb.rpc('adicionar_prazo', { p_id: pa.id, p_tipo: $('#pzTipo').value, p_descricao: desc || null, p_vence: venc, p_email: $('#pzMail').checked }).then(function (r) {
+          if (r.error) { $('#pzAdd').disabled = false; return ($('#pzErr').textContent = errText(r.error)); }
+          toast('Prazo registrado até ' + fmtYMD(venc) + '.'); reloadProcs().then(function () { fillDetail(pa.id); });
+        });
+      };
+      d.querySelectorAll('[data-pz]').forEach(function (b) {
+        b.onclick = function () {
+          b.disabled = true;
+          sb.rpc('concluir_prazo', { p_prazo_id: +b.dataset.pz, p_situacao: b.dataset.sit, p_email: false }).then(function (r) {
+            if (r.error) { b.disabled = false; return toast(errText(r.error)); }
+            toast(b.dataset.sit === 'cumprido' ? 'Prazo marcado como cumprido.' : 'Prazo cancelado.'); reloadProcs().then(function () { fillDetail(pa.id); });
+          });
+        };
+      });
       $('#dtNotes').onchange = function (e) {
         sb.from('processos').update({ notas_internas: e.target.value }).eq('id', pa.id).then(function (r) {
           if (r.error) return toast(errText(r.error)); pa.notas_internas = e.target.value; $('#dtSaved').textContent = 'Nota salva.';
-        });
-      };
-      if ($('#dtPrazoBtn')) $('#dtPrazoBtn').onclick = function () {
-        var v = $('#dtPrazo').value || null;
-        if (v === (pa.prazo_edital || null)) return toast('O prazo já está assim.');
-        this.disabled = true;
-        sb.rpc('definir_prazo_edital', { p_id: pa.id, p_prazo: v, p_email: true }).then(function (r) {
-          if (r.error) { toast(errText(r.error)); var b = $('#dtPrazoBtn'); if (b) b.disabled = false; return; }
-          toast(v ? 'Prazo do edital salvo: ' + fmtYMD(v) + '. E-mails na fila de envio.' : 'Prazo do edital removido.');
-          reloadProcs();
         });
       };
       $('#fDados').onsubmit = function (e) { e.preventDefault(); saveDados(pa); };
@@ -636,10 +743,17 @@
       '<div class="grid2"><div><label for="nwMat">Matrícula</label><input type="text" id="nwMat" maxlength="40"></div><div><label for="nwPren">Data da prenotação</label><input type="date" id="nwPren"></div></div>' +
       '<label for="nwTipo">Tipo de usucapião</label><input type="text" id="nwTipo" maxlength="60" list="dlTipos2"><datalist id="dlTipos2">' + TIPOS.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       '<label for="nwAdv">Advogado / representante</label>' + advSelect('nwAdv', null) +
-      '<label for="nwResp">Escrevente responsável</label><select id="nwResp">' + approved().map(function (u) { return '<option value="' + u.id + '"' + (u.id === S.me.id ? ' selected' : '') + '>' + esc(u.nome) + (u.id === S.me.id ? ' (você)' : '') + '</option>'; }).join('') + '<option value="">Sem responsável</option></select>' +
-      '<p class="hint">Escolha com quem o caso vai ficar, mesmo que não seja você.</p>' +
+      '<label for="nwResp">Com quem está o processo</label><select id="nwResp">' + respOptions('u:' + S.me.id) + '</select>' +
+      '<p class="hint">Escolha com quem o caso vai ficar, mesmo que não seja você ou que a pessoa não tenha conta.</p>' +
       '<div class="err" id="nwErr" role="alert"></div><div class="m-f"><button type="button" class="btn ghost" id="nwCancel">Cancelar</button><button type="button" class="btn primary" id="nwOk">Criar processo</button></div></div>';
     $('#nwCancel').onclick = function () { d.close(); };
+    var nwBind = function (cur) {
+      bindRespSelect($('#nwResp'), cur, function (k) {
+        if (!$('#nwResp').querySelector('option[value="' + k + '"]')) $('#nwResp').innerHTML = respOptions(k);
+        $('#nwResp').value = k; nwBind(k);
+      });
+    };
+    nwBind('u:' + S.me.id);
     $('#nwOk').onclick = function () {
       var proto = $('#nwProto').value.trim(), nome = $('#nwNome').value.trim(), mail = $('#nwMail').value.trim(), imo = $('#nwImo').value.trim(), err = $('#nwErr');
       var extras = parseEmails($('#nwExtra').value);
@@ -650,17 +764,57 @@
       var ruim = extras.find(function (x) { return !EMAIL_RE.test(x); });
       if (ruim) return (err.textContent = 'E-mail inválido: ' + ruim);
       var btn = $('#nwOk'); btn.disabled = true; err.textContent = '';
+      var rk = $('#nwResp').value, rp = respPayload(rk === '__novo' ? '' : rk);
       sb.rpc('novo_processo', {
-        p_protocolo: proto, p_nome: nome, p_email: mail, p_imovel: imo, p_responsavel: $('#nwResp').value || null,
+        p_protocolo: proto, p_nome: nome, p_email: mail, p_imovel: imo, p_responsavel: rp.responsavel_id,
         p_emails_extra: extras, p_matricula: $('#nwMat').value.trim() || null, p_tipo: $('#nwTipo').value.trim() || null,
         p_prenotacao: $('#nwPren').value || null, p_referencia: $('#nwRef').value.trim() || null, p_advogado: $('#nwAdv').value ? +$('#nwAdv').value : null
       }).then(function (r) {
         btn.disabled = false;
         if (r.error) { err.textContent = errText(r.error); return; }
-        d.close(); toast('Processo ' + proto + ' criado. E-mail de confirmação na fila de envio.'); reloadProcs();
+        var fin = function () { d.close(); toast('Processo ' + proto + ' criado. E-mail de confirmação na fila de envio.'); reloadProcs(); };
+        if (rp.responsavel_externo_id && r.data) sb.from('processos').update({ responsavel_externo_id: rp.responsavel_externo_id }).eq('id', r.data.id).then(fin); else fin();
       });
     };
     d.showModal(); setTimeout(function () { $('#nwProto').focus(); }, 30);
+  }
+
+  /* ---------- aba Prazos ---------- */
+  var PF = { resp: 'all', tipo: '' };
+  function renderPrazos() {
+    var lista = S.prazos.filter(function (z) {
+      var p = byId(z.processo_id); if (!p) return false;
+      if (PF.tipo && z.tipo !== PF.tipo) return false;
+      if (PF.resp === 'none') return !respKey(p);
+      if (PF.resp !== 'all') return respKey(p) === PF.resp;
+      return true;
+    }).sort(function (a, b) { return a.vence_em < b.vence_em ? -1 : a.vence_em > b.vence_em ? 1 : 0; });
+    var vencidos = lista.filter(function (z) { return daysLeft(z.vence_em) < 0; }).length;
+    var semana = lista.filter(function (z) { var d = daysLeft(z.vence_em); return d >= 0 && d <= 7; }).length;
+    var respOpts = '<option value="all">Todos</option>' + approved().map(function (u) { return '<option value="u:' + u.id + '"' + (PF.resp === 'u:' + u.id ? ' selected' : '') + '>' + esc(u.nome) + '</option>'; }).join('') +
+      S.externos.map(function (x) { return '<option value="x:' + x.id + '"' + (PF.resp === 'x:' + x.id ? ' selected' : '') + '>' + esc(x.nome) + '</option>'; }).join('') + '<option value="none"' + (PF.resp === 'none' ? ' selected' : '') + '>Sem responsável</option>';
+    $('#body').innerHTML = '<div class="page gut"><h2>Prazos</h2><p class="muted" style="margin:0">Todos os prazos em aberto (intimações, editais, exigências), do mais próximo ao mais distante. Para registrar um novo, abra o processo.</p>' +
+      '<div class="stats" style="padding:12px 0 4px"><div class="stat ' + (vencidos ? 'alert' : '') + '"><b>' + vencidos + '</b><span>vencidos</span></div><div class="stat"><b>' + semana + '</b><span>vencem em 7 dias</span></div><div class="stat"><b>' + lista.length + '</b><span>em aberto</span></div></div>' +
+      '<div class="row2 wrap" style="margin:8px 0"><select id="pfResp" aria-label="Filtrar por responsável">' + respOpts + '</select><select id="pfTipo" aria-label="Filtrar por tipo"><option value="">Todos os tipos</option>' +
+      Object.keys(TIPO_PRAZO).map(function (k) { return '<option value="' + k + '"' + (PF.tipo === k ? ' selected' : '') + '>' + TIPO_PRAZO[k] + '</option>'; }).join('') + '</select></div>' +
+      (lista.length ? '<div class="tblwrap"><table class="tbl"><thead><tr><th>Vence em</th><th>Tipo</th><th>Processo</th><th>Com quem está</th><th></th></tr></thead><tbody>' + lista.map(function (z) {
+        var p = byId(z.processo_id), d = daysLeft(z.vence_em);
+        return '<tr class="clickrow" data-open="' + p.id + '"><td><b>' + fmtYMD(z.vence_em) + '</b><br><span class="chip ' + (d < 0 ? 'bad' : d <= 15 ? 'warn' : 'gold') + '">' + (d < 0 ? 'vencido há ' + (-d) + ' ' + plural(-d, 'dia', 'dias') : d === 0 ? 'vence hoje' : 'faltam ' + d + ' ' + plural(d, 'dia', 'dias')) + '</span></td>' +
+          '<td>' + TIPO_PRAZO[z.tipo] + (z.descricao ? '<br><span class="muted small">' + esc(z.descricao) + '</span>' : '') + '</td><td><b>' + esc(p.protocolo) + '</b><br><span class="muted small">' + esc(p.requerente_nome) + '</span></td>' +
+          '<td>' + avatarKey(respKey(p)) + ' ' + esc(respName(p)) + '</td><td><button class="btn sm" data-done="' + z.id + '">Cumprido</button></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="msg info" style="margin-top:12px">Nenhum prazo em aberto com esses filtros.</div>') + '</div>';
+    $('#pfResp').onchange = function (e) { PF.resp = e.target.value; renderPrazos(); };
+    $('#pfTipo').onchange = function (e) { PF.tipo = e.target.value; renderPrazos(); };
+    document.querySelectorAll('[data-done]').forEach(function (b) {
+      b.onclick = function (e) {
+        e.stopPropagation(); b.disabled = true;
+        sb.rpc('concluir_prazo', { p_prazo_id: +b.dataset.done, p_situacao: 'cumprido', p_email: false }).then(function (r) {
+          if (r.error) { b.disabled = false; return toast(errText(r.error)); }
+          toast('Prazo marcado como cumprido.'); reloadProcs().then(renderPrazos);
+        });
+      };
+    });
+    document.querySelectorAll('.clickrow').forEach(function (tr) { tr.onclick = function () { openDetail(+tr.dataset.open); }; });
   }
 
   /* ---------- advogados ---------- */
@@ -745,10 +899,17 @@
         '<td><span class="pill sm" style="--c:' + (u.aprovado ? 'var(--ok)' : 'var(--warn)') + '">' + (u.aprovado ? 'Aprovado' : 'Aguardando') + '</span></td>' +
         '<td>' + (self ? '' : '<button class="btn sm ' + (u.aprovado ? '' : 'primary') + '" data-uid="' + u.id + '" data-ap="' + (u.aprovado ? '0' : '1') + '">' + (u.aprovado ? 'Bloquear' : 'Aprovar') + '</button>') + '</td></tr>';
     }).join('');
-    var opts = approved().map(function (u) { return '<option value="' + u.id + '">' + esc(u.nome) + '</option>'; }).join('');
+    var opts = approved().map(function (u) { return '<option value="u:' + u.id + '">' + esc(u.nome) + '</option>'; }).join('') +
+      S.externos.map(function (x) { return '<option value="x:' + x.id + '">' + esc(x.nome) + ' (sem conta)</option>'; }).join('');
+    var exRows = S.externos.map(function (x) {
+      var n = S.procs.filter(function (p) { return p.responsavel_externo_id === x.id && p.fase_id < 8; }).length;
+      return '<tr><td><b>' + esc(x.nome) + '</b>' + (x.ativo ? '' : ' <span class="chip">Desativado</span>') + '</td><td>' + esc(x.email || '—') + '</td><td>' + n + '</td><td><button class="btn sm" data-xt="' + x.id + '">' + (x.ativo ? 'Desativar' : 'Reativar') + '</button></td></tr>';
+    }).join('');
     $('#body').innerHTML = '<div class="page gut"><h2>Equipe</h2><p class="muted" style="margin:0">Cada escrevente cria a própria conta. O acesso só começa depois que você aprova.</p>' +
       '<div class="tblwrap"><table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Em andamento</th><th>Cadastro</th><th>Situação</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<h3 style="margin:22px 0 4px">Passar processos de um escrevente para outro</h3><p class="muted" style="margin:0">Útil em férias ou afastamentos. Só os processos em andamento mudam; a troca fica registrada.</p>' +
+      '<div class="page-h" style="margin-top:22px"><div><h3 style="margin:0 0 4px">Pessoas sem conta no painel</h3><p class="muted" style="margin:0">Podem ser indicadas em “Com quem está o processo”, mas não entram no painel.</p></div><button class="btn" id="exNew">' + ICON.plus + 'Adicionar pessoa</button></div>' +
+      (S.externos.length ? '<div class="tblwrap"><table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Em andamento</th><th></th></tr></thead><tbody>' + exRows + '</tbody></table></div>' : '') +
+      '<h3 style="margin:22px 0 4px">Passar processos de uma pessoa para outra</h3><p class="muted" style="margin:0">Útil em férias ou afastamentos. Só os processos em andamento mudam; a troca fica registrada.</p>' +
       '<div class="row2 wrap" style="margin-top:8px"><select id="trDe" aria-label="De"><option value="">De…</option>' + opts + '</select><span>→</span><select id="trPara" aria-label="Para"><option value="">Para…</option>' + opts + '</select><button class="btn" id="trOk">Passar processos</button></div></div>';
     document.querySelectorAll('[data-uid]').forEach(function (b) {
       b.onclick = function () {
@@ -760,15 +921,26 @@
         });
       };
     });
+    $('#exNew').onclick = function () { addExterno(function () { toast('Pessoa adicionada.'); renderEquipe(); }); };
+    document.querySelectorAll('[data-xt]').forEach(function (b) {
+      b.onclick = function () {
+        var x = extById(+b.dataset.xt);
+        sb.from('pessoas_externas').update({ ativo: !x.ativo }).eq('id', x.id).then(function (r) {
+          if (r.error) return toast(errText(r.error)); x.ativo = !x.ativo; renderEquipe();
+        });
+      };
+    });
     $('#trOk').onclick = function () {
       var de = $('#trDe').value, para = $('#trPara').value;
-      if (!de || !para || de === para) return toast('Escolha dois escreventes diferentes.');
-      var n = S.procs.filter(function (p) { return p.responsavel_id === de && p.fase_id < 8; }).length;
-      if (!n) return toast(userName(de) + ' não tem processos em andamento.');
-      confirmDialog({ titulo: 'Passar ' + n + ' ' + plural(n, 'processo', 'processos') + '?', texto: 'De <b>' + esc(userName(de)) + '</b> para <b>' + esc(userName(para)) + '</b>.', ok: 'Passar processos' }).then(function (ok) {
+      if (!de || !para || de === para) return toast('Escolha duas pessoas diferentes.');
+      var n = S.procs.filter(function (p) { return respKey(p) === de && p.fase_id < 8; }).length;
+      if (!n) return toast(keyName(de) + ' não tem processos em andamento.');
+      confirmDialog({ titulo: 'Passar ' + n + ' ' + plural(n, 'processo', 'processos') + '?', texto: 'De <b>' + esc(keyName(de)) + '</b> para <b>' + esc(keyName(para)) + '</b>.', ok: 'Passar processos' }).then(function (ok) {
         if (!ok) return;
-        sb.from('processos').update({ responsavel_id: para }).eq('responsavel_id', de).lt('fase_id', 8).then(function (r) {
-          if (r.error) return toast(errText(r.error)); toast(n + ' ' + plural(n, 'processo passou', 'processos passaram') + ' para ' + userName(para) + '.'); reloadProcs().then(renderEquipe);
+        var q = sb.from('processos').update(respPayload(para)).lt('fase_id', 8);
+        q = de.charAt(0) === 'u' ? q.eq('responsavel_id', de.slice(2)) : q.eq('responsavel_externo_id', +de.slice(2));
+        q.then(function (r) {
+          if (r.error) return toast(errText(r.error)); toast(n + ' ' + plural(n, 'processo passou', 'processos passaram') + ' para ' + keyName(para) + '.'); reloadProcs().then(renderEquipe);
         });
       });
     };
@@ -857,12 +1029,12 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
   function exportCsv() {
-    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazo do edital', 'Na fase desde', 'Criado em'];
+    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'];
     var rows = S.procs.slice().sort(function (a, b) { return a.protocolo.localeCompare(b.protocolo, 'pt-BR', { numeric: true }); }).map(function (p) {
       var a = advById(p.advogado_id);
       return [p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra || []).join(' | '), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
-        p.data_prenotacao ? fmtYMD(p.data_prenotacao) : '', a ? a.nome : '', faseById(p.fase_id).nome, p.responsavel_id ? userName(p.responsavel_id) : '',
-        p.prazo_edital ? fmtYMD(p.prazo_edital) : '', fmtDate(p.fase_desde), fmtDate(p.criado_em)].map(csvCell).join(';');
+        p.data_prenotacao ? fmtYMD(p.data_prenotacao) : '', a ? a.nome : '', faseById(p.fase_id).nome, respKey(p) ? respName(p) : '',
+        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].map(csvCell).join(';');
     });
     var blob = new Blob(['﻿' + head.map(csvCell).join(';') + '\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob);

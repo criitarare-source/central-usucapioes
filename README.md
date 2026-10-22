@@ -86,3 +86,14 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 ## SQL aplicado manualmente
 
 `supabase/manual/08_consulta_advogado_e_limpar_quadro.sql` precisa ser colado no SQL Editor do Supabase (o conector automático bloqueia funções públicas e comandos de exclusão).
+
+## Prazos, observações e responsáveis sem conta
+
+- **Com quem está o processo:** pode ser um escrevente com conta ou uma "pessoa sem conta no painel" (cadastrada na hora, em qualquer seletor, ou na aba Equipe). Quem tiver e-mail recebe o resumo diário.
+- **Observação no andamento:** o botão "Registrar no andamento" (no cartão aberto) grava uma observação na linha do tempo do cliente, com aviso opcional por e-mail. O histórico é imutável: correções entram como novas observações.
+- **Prazos:** cada processo pode ter vários prazos em aberto (intimação, edital, exigência, outro), em qualquer fase, com vencimento e descrição. O cliente vê os prazos em aberto. Marque como cumprido ou cancele. O prazo de edital é encerrado automaticamente ao sair da fase de edital, e todos os prazos ao concluir/encerrar o processo. A aba **Prazos** lista todos os vencimentos.
+- **Lembrete em exigência:** todo dia, às 8h30, processos parados em "Exigências" há mais de 15 dias recebem um e-mail de lembrete (repetido a cada 15 dias). Função `gerar_lembretes` (pg_cron `lembretes-exigencia-usucapioes`).
+- **Backup semanal:** toda segunda, às 7h, o CSV completo vai para o e-mail do Oficial (pg_cron `backup-semanal-usucapioes`, modo `backup` da função `enviar-emails`).
+- **Área do advogado:** os processos abrem todos na mesma tela (podem ficar vários abertos), com contagem por situação, filtros e busca.
+
+`supabase/manual/09_consultas_publicas_v2.sql` atualiza as duas consultas públicas (já aplicado).
