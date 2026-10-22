@@ -87,7 +87,6 @@ Deno.serve(async (req) => {
   });
   const corpo = await req.json().catch(() => ({}));
   if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
-  if (corpo?.modo === "backup") return await backupSemanal(sb, json);
   const { data, error } = await sb.rpc("reservar_emails_v3", { p_limite: 20 });
   if (error) return json({ erro: error.message }, 500);
 
@@ -122,6 +121,8 @@ Deno.serve(async (req) => {
 
 // Resumo diário: um e-mail por escrevente com os processos que pedem atenção.
 async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {
+  const { data: liberado } = await sb.rpc("liberar_execucao", { p_nome: "resumo", p_horas: 20 });
+  if (!liberado) return json({ resumo: false, ignorado: "já executado nas últimas 20 horas" });
   const { data, error } = await sb.rpc("resumo_diario");
   if (error) return json({ erro: error.message }, 500);
   type Item = { protocolo: string; nome: string; fase: string; motivo: string; sem_responsavel: boolean };
@@ -141,58 +142,4 @@ async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unkno
     } catch { falhas++; }
   }
   return json({ resumo: true, enviados, falhas });
-}
-
-// Backup semanal: CSV completo enviado ao Oficial.
-async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {
-  const [pr, fs, ad, pf, ex, pz] = await Promise.all([
-    sb.from("processos").select("*").order("protocolo"),
-    sb.from("fases").select("id,nome"),
-    sb.from("advogados").select("id,nome"),
-    sb.from("perfis").select("id,nome,email,papel,aprovado"),
-    sb.from("pessoas_externas").select("id,nome"),
-    sb.from("prazos").select("processo_id,tipo,descricao,vence_em").eq("situacao", "aberto"),
-  ]);
-  if (pr.error) return json({ erro: pr.error.message }, 500);
-  const fase = new Map((fs.data ?? []).map((f: any) => [f.id, f.nome]));
-  const adv = new Map((ad.data ?? []).map((a: any) => [a.id, a.nome]));
-  const perf = new Map((pf.data ?? []).map((u: any) => [u.id, u.nome]));
-  const ext = new Map((ex.data ?? []).map((u: any) => [u.id, u.nome]));
-  const prazos = new Map<number, string[]>();
-  for (const z of (pz.data ?? []) as any[]) {
-    const l = prazos.get(z.processo_id) ?? [];
-    l.push(`${z.tipo}${z.descricao ? " - " + z.descricao : ""}: ${fmtYMD(z.vence_em)}`);
-    prazos.set(z.processo_id, l);
-  }
-  const cel = (v: unknown) => {
-    let t = v == null ? "" : String(v);
-    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
-    return `"${t.replace(/"/g, '""')}"`;
-  };
-  const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em"];
-  const linhas = ((pr.data ?? []) as any[]).map((p) => [
-    p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra ?? []).join(" | "), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
-    p.data_prenotacao ? fmtYMD(p.data_prenotacao) : "", adv.get(p.advogado_id) ?? "", fase.get(p.fase_id) ?? "",
-    perf.get(p.responsavel_id) ?? ext.get(p.responsavel_externo_id) ?? "", (prazos.get(p.id) ?? []).join(" | "),
-    fmtBR(p.fase_desde), fmtBR(p.criado_em),
-  ].map(cel).join(";"));
-  const csv = "\ufeff" + cab.map(cel).join(";") + "\r\n" + linhas.join("\r\n");
-  const bytes = new TextEncoder().encode(csv);
-  let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
-  const hoje = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
-  const oficiais = ((pf.data ?? []) as any[]).filter((u) => u.papel === "oficial" && u.aprovado);
-  let enviados = 0;
-  for (const o of oficiais) {
-    const resp = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: FROM, to: [o.email], subject: `Backup semanal da Central de Usucapiões (${hoje})`,
-        text: `Segue em anexo a planilha com os ${linhas.length} processos cadastrados. Ela contém dados pessoais: guarde em local seguro e apague este e-mail quando não precisar mais.`,
-        attachments: [{ filename: `usucapioes-${hoje}.csv`, content: btoa(bin) }],
-      }),
-    });
-    if (resp.ok) enviados++;
-  }
-  return json({ backup: true, processos: linhas.length, enviados });
 }
