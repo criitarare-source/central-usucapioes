@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.6"
+VERSAO = "1.7"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -30,7 +30,7 @@ URL = "acompanhamento.riitarare.com.br"
 
 story = []
 cab = Table([[Image(LOGO, width=22*mm, height=22*mm * 0.62) if os.path.exists(LOGO) else "",
-              [P("Visualizador de Usucapião", h1), P("Guia rápido para escreventes · Registro de Imóveis de Itararé", sub)]]],
+              [P("Visualizador de Usucapiões", h1), P("Guia rápido para escreventes · Registro de Imóveis de Itararé", sub)]]],
             colWidths=[28*mm, None])
 cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LINEBELOW", (0, 0), (-1, 0), 1.2, OURO), ("BOTTOMPADDING", (0, 0), (-1, 0), 7)]))
 story += [cab, Spacer(1, 4)]
@@ -92,11 +92,11 @@ story += [Spacer(1, 8), av]
 
 def rodape(c, d):
     c.saveState(); c.setFont("Helvetica", 7.8); c.setFillColor(CINZA)
-    c.drawString(18*mm, 10*mm, f"Visualizador de Usucapião · Guia rápido · versão {VERSAO} · atualizado em {DATA} · dúvidas: fale com o Oficial")
+    c.drawString(18*mm, 10*mm, f"Visualizador de Usucapiões · Guia rápido · versão {VERSAO} · atualizado em {DATA} · dúvidas: fale com o Oficial")
     c.drawRightString(A4[0] - 18*mm, 10*mm, f"{d.page}")
     c.restoreState()
 
 doc = SimpleDocTemplate(SAIDA, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm, topMargin=14*mm, bottomMargin=17*mm,
-                        title="Visualizador de Usucapião - Guia rápido para escreventes", author="Registro de Imóveis de Itararé")
+                        title="Visualizador de Usucapiões - Guia rápido para escreventes", author="Registro de Imóveis de Itararé")
 doc.build(story, onFirstPage=rodape, onLaterPages=rodape)
 print("ok", SAIDA)

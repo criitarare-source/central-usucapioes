@@ -1,6 +1,6 @@
 {
- "name": "Visualizador de Usucapião",
- "short_name": "Usucapião",
+ "name": "Visualizador de Usucapiões",
+ "short_name": "Usucapiões",
  "description": "Consulte o andamento do seu pedido de usucapião extrajudicial.",
  "start_url": "/",
  "scope": "/",

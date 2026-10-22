@@ -296,7 +296,7 @@
     $('#root').innerHTML =
       '<div class="app"><header class="top"><div class="top-in gut">' +
       '<img class="logo" src="' + LOGO + '" alt="Registro de Imóveis de Itararé">' +
-      '<div class="brand"><h1>Visualizador de Usucapião</h1><p>Usucapião extrajudicial · Itararé</p></div>' +
+      '<div class="brand"><h1>Visualizador de Usucapiões</h1><p>Usucapião extrajudicial · Itararé</p></div>' +
       '<nav class="tabs" role="tablist" aria-label="Seções">' + tabs + '</nav>' +
       '<div class="who2"><button type="button" class="btn hbtn" id="bGlobal" title="Buscar em todos os processos (atalho: /)">' + ICON.search + '<span>Buscar</span><kbd>/</kbd></button><button type="button" class="btn hbtn" id="bTema" title="Mudar o tema"></button><button type="button" class="btn hbtn" id="bFonte" title="Mudar o tamanho da letra"></button><button type="button" class="btn hbtn" id="bAjuda" title="Atalhos e tour" aria-label="Ajuda">?</button><span class="who-n">' + esc(S.me.nome) + (isOficial() ? ' · Oficial' : '') + '</span><a href="/" target="_blank" rel="noopener">Página do cliente</a><button class="btn" id="bOut">Sair</button></div>' +
       '</div></header><div id="body" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>';
@@ -1010,7 +1010,7 @@
 
   /* ---------- tour do primeiro acesso ---------- */
   var TOUR = [
-    ['Bem-vindo à Visualizador de Usucapião', 'Aqui você acompanha todos os processos do cartório. O requerente consulta só o andamento, digitando o número do protocolo. Este tour leva menos de um minuto.'],
+    ['Bem-vindo à Visualizador de Usucapiões', 'Aqui você acompanha todos os processos do cartório. O requerente consulta só o andamento, digitando o número do protocolo. Este tour leva menos de um minuto.'],
     ['O quadro', 'Cada coluna é uma fase. Arraste um cartão para a fase seguinte (ou abra o cartão e escolha a fase). Ao mover, você escreve a mensagem para o requerente e pode conferir a prévia do e-mail.'],
     ['Errou? Desfaça', 'Depois de mover um processo aparece o botão “Desfazer” por alguns segundos. Os e-mails só saem cerca de 1 minuto depois, para dar tempo de corrigir.'],
     ['Com quem está o processo', 'Clique no nome no pé do cartão para passar o caso a outro escrevente, mesmo quem não tem conta no painel. Em “Selecionar vários” você muda de responsável ou de fase vários cartões de uma vez.'],

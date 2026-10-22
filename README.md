@@ -1,4 +1,4 @@
-# Visualizador de Usucapião
+# Visualizador de Usucapiões
 
 Registro de Imóveis de Itararé.
 
