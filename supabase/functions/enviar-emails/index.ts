@@ -1,0 +1,103 @@
+// Envia por e-mail (Resend) cada mudança de fase ou de prazo ao requerente.
+// É acionada a cada minuto pelo agendador do banco (pg_cron) e processa a fila emails_enviados.
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const SITE = (Deno.env.get("SITE_URL") ?? "https://central-usucapioes.vercel.app").replace(/\/$/, "");
+// Enquanto o domínio do cartório não estiver verificado no Resend, o remetente de teste só envia ao dono da conta Resend.
+const FROM = Deno.env.get("EMAIL_FROM") ?? "Registro de Imóveis de Itararé <onboarding@resend.dev>";
+const RESEND_KEY = Deno.env.get("RESEND_API_KEY");
+const MAX_TENTATIVAS = 3;
+
+const esc = (s: unknown) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+const fmtYMD = (s: string) => {
+  const [y, m, d] = s.split("-");
+  return `${d}/${m}/${y}`;
+};
+const fmtBR = (iso: string) =>
+  new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+type Linha = {
+  email_id: number; destinatario: string; tentativas: number; protocolo: string; requerente_nome: string;
+  tipo: string | null; fase_id: number | null; fase_nome: string | null; descricao: string | null;
+  mensagem: string | null; prazo_edital: string | null; em: string | null;
+};
+
+function montar(r: Linha) {
+  const primeiro = (r.requerente_nome ?? "").trim().split(/\s+/)[0] || "";
+  const ehPrazo = r.tipo === "prazo";
+  const titulo = ehPrazo ? "Prazo do edital atualizado" : (r.fase_nome ?? "Atualização do pedido");
+  const link = `${SITE}/?p=${encodeURIComponent(r.protocolo)}`;
+  const assunto = `Usucapião ${r.protocolo}: ${ehPrazo ? "prazo do edital atualizado" : titulo}`.slice(0, 120);
+  const quando = r.em ? fmtBR(r.em) : fmtBR(new Date().toISOString());
+  const desc = ehPrazo ? "" : (r.descricao ?? "");
+  const prazo = !ehPrazo && r.prazo_edital ? `O prazo do edital termina em ${fmtYMD(r.prazo_edital)}.` : "";
+
+  const html = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#EDF0EA;font-family:Arial,Helvetica,sans-serif;color:#13261F">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#EDF0EA"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden">
+<tr><td style="background:#0F3B2D;color:#F2F7F3;padding:18px 24px;font-size:18px;font-weight:bold">Registro de Imóveis de Itararé</td></tr>
+<tr><td style="padding:24px">
+<p style="margin:0 0 12px;font-size:16px">Olá${primeiro ? ", " + esc(primeiro) : ""}!</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5">O andamento do seu pedido de usucapião extrajudicial (protocolo <b>${esc(r.protocolo)}</b>) foi atualizado.</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F5F7F3;border-left:4px solid #A8751F;border-radius:6px"><tr><td style="padding:12px 16px">
+<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#66786F">${ehPrazo ? "Atualização" : "Nova etapa"}</div>
+<div style="font-size:18px;font-weight:bold;margin:2px 0">${esc(titulo)}</div>
+<div style="font-size:12px;color:#465850">${esc(quando)}</div></td></tr></table>
+${desc ? `<p style="margin:16px 0 0;font-size:15px;line-height:1.5">${esc(desc)}</p>` : ""}
+${r.mensagem ? `<div style="margin:16px 0 0;padding:10px 14px;border-left:3px solid #D5DCD3;background:#F5F7F3;font-size:15px;line-height:1.5"><div style="font-size:12px;color:#66786F;margin-bottom:4px">Mensagem do cartório</div>${esc(r.mensagem)}</div>` : ""}
+${prazo ? `<p style="margin:16px 0 0;font-size:15px"><b>${esc(prazo)}</b></p>` : ""}
+<p style="margin:24px 0"><a href="${esc(link)}" style="background:#0F3B2D;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold;display:inline-block">Acompanhar meu pedido</a></p>
+<p style="margin:0;font-size:12px;color:#66786F;line-height:1.5">Você recebe um e-mail a cada mudança de etapa. Se o botão não abrir, copie este endereço no navegador:<br>${esc(link)}</p>
+</td></tr></table></td></tr></table></body></html>`;
+
+  const texto = [
+    `Olá${primeiro ? ", " + primeiro : ""}!`,
+    `O andamento do seu pedido de usucapião extrajudicial (protocolo ${r.protocolo}) foi atualizado.`,
+    `${ehPrazo ? "Atualização" : "Nova etapa"}: ${titulo} (${quando})`,
+    desc, r.mensagem ? `Mensagem do cartório: ${r.mensagem}` : "", prazo,
+    `Acompanhe o pedido: ${link}`,
+  ].filter(Boolean).join("\n\n");
+
+  return { assunto, html, texto };
+}
+
+Deno.serve(async () => {
+  const json = (o: unknown, status = 200) =>
+    new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
+
+  // Sem a chave do Resend, os e-mails ficam na fila até ela ser configurada.
+  if (!RESEND_KEY) return json({ ignorado: "RESEND_API_KEY ainda não configurada" });
+
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+    auth: { persistSession: false },
+  });
+  const { data, error } = await sb.rpc("reservar_emails", { p_limite: 20 });
+  if (error) return json({ erro: error.message }, 500);
+
+  let enviados = 0, falhas = 0;
+  for (const r of (data ?? []) as Linha[]) {
+    const { assunto, html, texto } = montar(r);
+    let erroEnvio: string | null = null;
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: FROM, to: [r.destinatario], subject: assunto, html, text: texto }),
+      });
+      if (!resp.ok) erroEnvio = `Resend ${resp.status}: ${(await resp.text()).slice(0, 300)}`;
+    } catch (e) {
+      erroEnvio = `Falha de rede: ${String((e as Error).message ?? e).slice(0, 200)}`;
+    }
+    if (!erroEnvio) {
+      enviados++;
+      await sb.from("emails_enviados").update({ status: "enviado", enviado_em: new Date().toISOString(), erro: null }).eq("id", r.email_id);
+    } else {
+      falhas++;
+      await sb.from("emails_enviados").update({
+        status: r.tentativas >= MAX_TENTATIVAS ? "falhou" : "pendente", erro: erroEnvio,
+      }).eq("id", r.email_id);
+    }
+  }
+  return json({ enviados, falhas });
+});

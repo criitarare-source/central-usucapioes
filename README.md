@@ -57,3 +57,18 @@ vercel.json         ajustes de endereço e cabeçalhos de segurança
   Nome, e-mail, imóvel e notas internas nunca saem do painel.
 - A consulta pública tem limite de consultas por minuto, contra tentativa de varrer protocolos.
 - Nunca coloque senhas nem a chave `service_role` neste repositório.
+
+## E-mails automáticos
+
+Cada mudança de fase ou de prazo entra numa fila (tabela `emails_enviados`).
+A cada minuto, o agendador do banco (pg_cron) aciona a função `enviar-emails`
+(código em `supabase/functions/enviar-emails/`), que envia pelo Resend.
+O Oficial acompanha tudo na aba **E-mails** do painel.
+
+Configurações da função (Supabase → Edge Functions → Secrets):
+
+| Nome | Para quê |
+|---|---|
+| `RESEND_API_KEY` | Chave do Resend. Sem ela, os e-mails ficam na fila. |
+| `EMAIL_FROM` | Remetente, por exemplo `Registro de Imóveis de Itararé <usucapiao@seucartorio.com.br>`. Só funciona depois de verificar o domínio no Resend. Sem este valor, usa o remetente de teste do Resend, que só envia ao dono da conta Resend. |
+| `SITE_URL` | Endereço do site, para o link do e-mail. Se não for definido, usa `https://central-usucapioes.vercel.app`. |
