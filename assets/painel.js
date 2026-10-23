@@ -283,11 +283,98 @@
   }
 
   /* ---------- estrutura do app ---------- */
+  /* ---------- gráficos ---------- */
+  var GR = { est: null, em: 0, err: null };
+  var GR_COR = ['#1C5A45', '#2E8B73', '#A8751F', '#C9962F', '#4F67A8', '#7A58A6', '#B5483A', '#6F7C74', '#9AA79F'];
+  function grEsc(t) { return esc(String(t)); }
+  function grDias(d) { return d == null ? '—' : d < 1 ? 'menos de 1 dia' : (Math.round(d * 10) / 10).toString().replace('.', ',') + ' ' + (Math.round(d) === 1 ? 'dia' : 'dias'); }
+  function grBarras(linhas, fmt) {
+    var max = Math.max.apply(null, linhas.map(function (l) { return l.v; }).concat([1]));
+    return '<ul class="gr-bars">' + linhas.map(function (l) {
+      return '<li><span class="gr-lab" title="' + esc(l.nome) + '">' + esc(l.nome) + '</span><span class="gr-track"><span class="gr-fill" style="width:' + (l.v / max * 100) + '%;background:' + l.cor + '"></span></span><b class="gr-val">' + (fmt ? fmt(l) : l.v) + '</b></li>';
+    }).join('') + '</ul>';
+  }
+  function grLinha(meses) {
+    var W = 640, H = 220, L = 34, R = 26, T = 12, B = 30;
+    var max = Math.max.apply(null, meses.map(function (m) { return Math.max(m.entradas, m.concluidos); }).concat([4]));
+    var step = max <= 8 ? 2 : max <= 20 ? 5 : max <= 50 ? 10 : 20; max = Math.ceil(max / step) * step;
+    var x = function (i) { return L + (W - L - R) * (meses.length > 1 ? i / (meses.length - 1) : 0.5); };
+    var y = function (v) { return T + (H - T - B) * (1 - v / max); };
+    var grid = '';
+    for (var g = 0; g <= max; g += step) grid += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(g) + '" y2="' + y(g) + '" class="gr-grid"/><text x="' + (L - 6) + '" y="' + (y(g) + 4) + '" text-anchor="end" class="gr-tx">' + g + '</text>';
+    var lab = meses.map(function (m, i) { return '<text x="' + x(i) + '" y="' + (H - 10) + '" text-anchor="middle" class="gr-tx">' + m.mes.slice(5) + '/' + m.mes.slice(2, 4) + '</text>'; }).join('');
+    var serie = function (chave, cor, nome) {
+      var pts = meses.map(function (m, i) { return x(i) + ',' + y(m[chave]); }).join(' ');
+      return '<polyline points="' + pts + '" fill="none" stroke="' + cor + '" stroke-width="2.5" stroke-linejoin="round"/>' +
+        meses.map(function (m, i) { return '<circle cx="' + x(i) + '" cy="' + y(m[chave]) + '" r="4" fill="' + cor + '"><title>' + nome + ' em ' + m.mes.slice(5) + '/' + m.mes.slice(0, 4) + ': ' + m[chave] + '</title></circle>'; }).join('');
+    };
+    return '<svg class="gr-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Processos que entraram e que foram concluídos por mês, nos últimos 12 meses">' + grid + lab + serie('entradas', '#1C5A45', 'Entradas') + serie('concluidos', '#C9962F', 'Concluídos') + '</svg>' +
+      '<p class="gr-leg"><span><i style="background:#1C5A45"></i>Entradas (data da prenotação)</span><span><i style="background:#C9962F"></i>Concluídos</span></p>' +
+      '<details class="gr-det"><summary>Ver os números</summary><table class="tbl"><thead><tr><th>Mês</th><th>Entradas</th><th>Concluídos</th></tr></thead><tbody>' +
+      meses.map(function (m) { return '<tr><td>' + m.mes.slice(5) + '/' + m.mes.slice(0, 4) + '</td><td>' + m.entradas + '</td><td>' + m.concluidos + '</td></tr>'; }).join('') + '</tbody></table></details>';
+  }
+  function renderGraficos() {
+    var fases = visFases().slice().sort(function (a, b) { return a.ordem - b.ordem; });
+    var cor = {}; fases.forEach(function (f, i) { cor[f.id] = GR_COR[i % GR_COR.length]; });
+    var ativos = S.procs.filter(function (p) { return p.fase_id < 8; });
+    var parados = ativos.filter(function (p) { return p.fase_id !== 3 && daysSince(p.fase_desde) > 30; }).length;
+    var venc = S.prazos.filter(function (z) { var p = byId(z.processo_id); return p && p.fase_id < 8 && daysLeft(z.vence_em) <= 15; }).length;
+    var sem = ativos.filter(function (p) { return !respKey(p); }).length;
+    var stat = function (n, t, al) { return '<div class="stat' + (al && n ? ' alert' : '') + '"><b>' + n + '</b><span>' + t + '</span></div>'; };
+    var porFase = fases.map(function (f) { return { nome: f.nome, v: S.procs.filter(function (p) { return p.fase_id === f.id; }).length, cor: cor[f.id] }; });
+    // por escrevente (só andamento), empilhado por fase
+    var grupos = {};
+    ativos.forEach(function (p) {
+      var k = respKey(p) || 'none';
+      var g = grupos[k] || (grupos[k] = { nome: k === 'none' ? 'Sem responsável' : respName(p), tot: 0, f: {} });
+      g.tot++; g.f[p.fase_id] = (g.f[p.fase_id] || 0) + 1;
+    });
+    var lista = Object.keys(grupos).map(function (k) { return grupos[k]; }).sort(function (a, b) { return b.tot - a.tot; });
+    var maxT = Math.max.apply(null, lista.map(function (g) { return g.tot; }).concat([1]));
+    var empilhado = lista.length ? '<ul class="gr-bars">' + lista.map(function (g) {
+      return '<li><span class="gr-lab" title="' + esc(g.nome) + '">' + esc(g.nome) + '</span><span class="gr-track"><span class="gr-stack" style="width:' + (g.tot / maxT * 100) + '%">' +
+        fases.filter(function (f) { return g.f[f.id]; }).map(function (f) { return '<span class="gr-seg" style="flex:' + g.f[f.id] + ';background:' + cor[f.id] + '" title="' + esc(f.nome) + ': ' + g.f[f.id] + '"></span>'; }).join('') + '</span></span><b class="gr-val">' + g.tot + '</b></li>';
+    }).join('') + '</ul>' : '<p class="muted">Nenhum processo em andamento.</p>';
+    var leg = '<p class="gr-leg">' + fases.filter(function (f) { return f.id < 8; }).map(function (f) { return '<span><i style="background:' + cor[f.id] + '"></i>' + esc(f.nome) + '</span>'; }).join('') + '</p>';
+    var valorSec = '';
+    if (isOficial()) {
+      var vl = fases.filter(function (f) { return f.id < 8; }).map(function (f) {
+        return { nome: f.nome, cor: cor[f.id], v: S.procs.filter(function (p) { return p.fase_id === f.id; }).reduce(function (a, p) { return a + (Number(p.valor) || 0); }, 0) };
+      });
+      var tot = vl.reduce(function (a, l) { return a + l.v; }, 0);
+      var semVal = ativos.filter(function (p) { return p.valor == null; }).length;
+      valorSec = '<section class="gr-card"><h3>Valor por fase <span class="chip gold">só Oficial</span></h3><p class="muted">Soma dos valores dos processos em andamento: <b>' + brl(tot) + '</b>' + (semVal ? ' · ' + semVal + ' ' + plural(semVal, 'processo', 'processos') + ' sem valor informado' : '') + '.</p>' + grBarras(vl, function (l) { return brl(l.v); }) + '</section>';
+    }
+    $('#body').innerHTML = '<div class="page gut gr-page"><div class="page-h"><div><h2>Gráficos</h2><p class="muted" style="margin:0">Visão geral dos processos. Os números do quadro são em tempo real.</p></div><button type="button" class="btn sm gr-actions" id="grPrint">Imprimir / salvar PDF</button></div>' +
+      '<div class="stats" style="padding:12px 0 4px">' + stat(ativos.length, 'em andamento') + stat(venc, 'prazos vencendo em 15 dias', 1) + stat(parados, 'parados há mais de 30 dias', 1) + stat(sem, 'sem escrevente responsável', 1) + '<div class="stat"><b id="grConc">…</b><span>concluídos neste mês</span></div></div>' +
+      '<div class="gr-grid2">' +
+      '<section class="gr-card"><h3>Processos por fase</h3><p class="muted">Quantidade de processos em cada etapa, incluindo concluídos.</p>' + grBarras(porFase) + '</section>' +
+      '<section class="gr-card"><h3>Em andamento por escrevente</h3><p class="muted">Cada cor é uma fase; passe o mouse para ver.</p>' + empilhado + leg + '</section>' +
+      '<section class="gr-card gr-wide"><h3>Entradas e conclusões por mês</h3><div id="grMes"><p class="muted">Carregando…</p></div></section>' +
+      '<section class="gr-card"><h3>Tempo médio em cada fase</h3><p class="muted">Média de dias que os processos ficaram na fase, até passarem para a seguinte.</p><div id="grTempo"><p class="muted">Carregando…</p></div></section>' +
+      valorSec + '</div></div>';
+    $('#grPrint').onclick = function () { window.print(); };
+    var pinta = function (est) {
+      if (!$('#grMes')) return;
+      var ult = est.meses[est.meses.length - 1];
+      $('#grConc').textContent = ult ? ult.concluidos : 0;
+      $('#grMes').innerHTML = grLinha(est.meses);
+      var mapa = {}; est.fases.forEach(function (x) { mapa[x.fase_id] = x; });
+      var linhas = fases.filter(function (f) { return f.id < 8; }).map(function (f) { return { nome: f.nome, cor: cor[f.id], v: mapa[f.id] ? Number(mapa[f.id].dias) : 0, n: mapa[f.id] ? mapa[f.id].n : 0 }; });
+      $('#grTempo').innerHTML = grBarras(linhas, function (l) { return l.n ? grDias(l.v) + ' <small>(' + l.n + ')</small>' : '—'; }) + '<p class="muted" style="margin-top:8px">Entre parênteses: quantas passagens pela fase entram na média.</p>';
+    };
+    if (GR.est && Date.now() - GR.em < 60000) return pinta(GR.est);
+    sb.rpc('estatisticas').then(function (r) {
+      if (r.error || !r.data) { var m = '<p class="muted">Não foi possível carregar este gráfico agora.</p>'; if ($('#grMes')) { $('#grMes').innerHTML = m; $('#grTempo').innerHTML = m; $('#grConc').textContent = '—'; } return; }
+      GR.est = r.data; GR.em = Date.now(); pinta(r.data);
+    });
+  }
+
   function pendentesCount() { return S.equipe.filter(function (u) { return !u.aprovado; }).length; }
 
   function renderApp() {
     var tab = function (v, label, extra) { return '<button class="tab" role="tab" data-view="' + v + '" aria-selected="' + (S.view === v) + '">' + label + (extra || '') + '</button>'; };
-    var tabs = tab('quadro', 'Quadro') + tab('prazos', 'Prazos') + tab('advogados', 'Advogados');
+    var tabs = tab('quadro', 'Quadro') + tab('prazos', 'Prazos') + tab('advogados', 'Advogados') + tab('graficos', 'Gráficos');
     if (isOficial()) {
       var n = pendentesCount();
       tabs += tab('equipe', 'Equipe', n ? '<span class="badge-n">' + n + '</span>' : '') + tab('emails', 'E-mails') + tab('ajustes', 'Ajustes');
@@ -314,6 +401,7 @@
     else if (v === 'ajustes' && isOficial()) renderAjustes();
     else if (v === 'prazos') renderPrazos();
     else if (v === 'advogados') renderAdvogados();
+    else if (v === 'graficos') renderGraficos();
     else if (v === 'conta') renderConta();
     else renderQuadro();
   }

@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.10"
+VERSAO = "1.11"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -71,6 +71,7 @@ story.append(sec("6. Advogados com vários processos", [
     "<b>Sem código:</b> se o advogado tiver e-mail cadastrado, ele pode informar só o e-mail, no campo logo abaixo do protocolo, e ver todos os processos vinculados na hora. Quem souber o e-mail cadastrado vê a lista, então use um e-mail que só o advogado conheça e mantenha-o correto.",
 ]))
 story.append(sec("7. Ganhar tempo", [
+    "<b>Gráficos:</b> aba com processos por fase, carga de cada escrevente, entradas e conclusões por mês e tempo médio em cada fase. O Oficial vê também o valor por fase. Há botão para imprimir ou salvar em PDF.",
     "<b>Buscar em tudo:</b> aperte <b>/</b> (ou Ctrl+K) em qualquer tela. Outros atalhos: <b>N</b> novo processo, <b>M</b> só os meus, <b>P</b> prazos, <b>?</b> ajuda.",
     "<b>Selecionar vários:</b> marque cartões e mude o responsável ou a fase de todos de uma vez (com opção de Desfazer).",
     "<b>Importar planilha:</b> botão no quadro. Aceita CSV ou células coladas do Excel (baixe o modelo). Só o protocolo é obrigatório; o que faltar fica como <b>“Dados a preencher”</b>. Os e-mails de aviso vêm desmarcados.",
