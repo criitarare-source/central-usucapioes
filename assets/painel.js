@@ -158,7 +158,7 @@
     var p;
     if (mode === 'login') {
       p = sb.auth.signInWithPassword({ email: mail, password: pass }).then(function (r) {
-        if (r.error) { setMsg('err', r.error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : r.error.message === 'Email not confirmed' ? 'Confirme seu e-mail pelo link que enviamos e tente de novo.' : r.error.message); return; }
+        if (r.error) { setMsg('err', r.error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : r.error.message === 'Email not confirmed' ? 'Esta conta ainda não foi liberada. Peça ao Oficial.' : r.error.message); return; }
         return enter();
       });
     } else if (mode === 'signup') {
@@ -167,7 +167,7 @@
       p = sb.auth.signUp({ email: mail, password: pass, options: { data: { nome: nome }, emailRedirectTo: location.origin + '/painel' } }).then(function (r) {
         if (r.error) { setMsg('err', r.error.message); return; }
         if (r.data && r.data.session) return enter();
-        showAuth('login', { k: 'ok', t: 'Conta criada. Confirme seu e-mail pelo link que enviamos e depois entre. O Oficial vai aprovar o seu acesso.' });
+        showAuth('login', { k: 'ok', t: 'Conta criada. Agora é só entrar: o Oficial vai aprovar o seu acesso.' });
       });
     } else {
       p = sb.auth.resetPasswordForEmail(mail, { redirectTo: location.origin + '/painel' }).then(function (r) {
