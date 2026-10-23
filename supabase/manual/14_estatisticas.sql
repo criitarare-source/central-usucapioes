@@ -1,0 +1,2 @@
+-- Já aplicado. Função da aba Gráficos (agregados mensais e tempo médio por fase).
+-- Definição completa: veja a migration "estatisticas" no projeto Supabase.
