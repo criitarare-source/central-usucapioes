@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.7"
+VERSAO = "1.8"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -49,7 +49,7 @@ story.append(sec("2. O quadro", [
 ]))
 story.append(sec("3. Novo processo", [
     "Botão <b>Novo processo</b>. Protocolo: só números (ex.: 52474). Preencha nome e e-mail do requerente; outros requerentes entram em “Outros e-mails”.",
-    "Opcional: imóvel, <b>referência curta</b> (o advogado vê, ex.: “Chácara Santa Luzia”), matrícula, tipo de usucapião, data da prenotação, advogado.",
+    "Opcional: imóvel, <b>referência curta</b> (o advogado vê, ex.: “Chácara Santa Luzia”), matrícula, <b>valor</b> (R$, uso interno: aparece só no card e não na consulta pública), tipo de usucapião, data da prenotação, advogado.",
     "Em <b>Com quem está o processo</b>, escolha quem cuida do caso, mesmo que não seja você ou que a pessoa não tenha conta. O requerente recebe um e-mail de confirmação.",
 ]))
 story.append(sec("4. Dentro do cartão", [

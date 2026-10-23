@@ -199,13 +199,13 @@ async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unkn
     };
     const fmt = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "");
     const tipoPz: Record<string, string> = { intimacao: "Intimação", edital: "Edital", exigencia: "Exigência", outro: "Prazo" };
-    const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo de usucapião", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em", "Notas internas"];
+    const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo de usucapião", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em", "Notas internas", "Valor (R$)"];
     const linhas = (pr.data ?? []).map((p: Record<string, any>) => [
       p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra ?? []).join(" | "), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
       fmt(p.data_prenotacao), nome(ad.data, p.advogado_id), nome(fa.data, p.fase_id),
       p.responsavel_id ? nome(pe.data, p.responsavel_id) : p.responsavel_externo_id ? nome(ex.data, p.responsavel_externo_id) : "",
       (pz.data ?? []).filter((z: any) => z.processo_id === p.id).map((z: any) => `${tipoPz[z.tipo] ?? "Prazo"}${z.descricao ? " - " + z.descricao : ""}: ${fmt(z.vence_em)}`).join(" | "),
-      fmt(p.fase_desde), fmt(p.criado_em), p.notas_internas,
+      fmt(p.fase_desde), fmt(p.criado_em), p.notas_internas, p.valor != null ? String(p.valor).replace(".", ",") : "",
     ].map(cel).join(";"));
     const csv = "\uFEFF" + cab.map(cel).join(";") + "\r\n" + linhas.join("\r\n");
     const bytes = new TextEncoder().encode(csv);

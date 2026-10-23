@@ -466,3 +466,7 @@ html[data-fs] dialog.sheet{height:calc(100% / var(--z));max-height:calc(100% / v
 .who2 .hbtn kbd{display:none}
 .who2 a{font-size:12px}
 .toolbar{gap:6px 10px}
+
+/* valor no card */
+.card .valor{font-weight:700;font-size:.86rem;color:var(--brand,#0F3B2D);margin-top:2px;font-variant-numeric:tabular-nums}
+html[data-theme="dark"] .card .valor{color:#9fd3b8}

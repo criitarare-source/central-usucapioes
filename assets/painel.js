@@ -424,6 +424,8 @@
     $('#stats').innerHTML = st(act.length, 'em andamento') + st(venc, 'prazos vencendo em 15 dias', 1) + st(par, 'parados há mais de 30 dias', 1) + st(sem, 'sem escrevente responsável', 1) + st(prv, 'com dados a preencher', 1) + st(aw, 'aguardando o requerente') + st(done, 'concluídos');
   }
 
+  function brl(v) { var n = Number(v); return isFinite(n) ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''; }
+  function parseBrl(t) { t = String(t || '').replace(/[^0-9,.\-]/g, ''); if (!t) return null; if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, ''); var n = parseFloat(t); return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : NaN; }
   function cardHTML(p) {
     var a = attention(p), tags = [];
     if (p.fase_id === 3) tags.push('<span class="chip warn">Aguardando requerente</span>');
@@ -442,6 +444,7 @@
     return '<article class="card ' + nivel + (SEL.ids[p.id] ? ' is-sel' : '') + '" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
       '<div class="card-top">' + (SEL.on ? '<span class="selbox" aria-hidden="true">' + (SEL.ids[p.id] ? '✓' : '') + '</span>' : '') + '<span class="proto">' + esc(p.protocolo) + '</span><span class="grip" aria-hidden="true">' + ICON.grip + '</span></div>' +
       '<div class="nome">' + esc(p.requerente_nome) + '</div><div class="imovel">' + esc(p.referencia || p.imovel) + '</div>' +
+      (p.valor != null ? '<div class="valor" title="Valor do ato / base de cálculo">' + brl(p.valor) + '</div>' : '') +
       (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
       '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age' + ageCls + '" title="Tempo nesta fase">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
   }
@@ -714,13 +717,14 @@
   }
 
   /* ---------- detalhe ---------- */
-  var FIELD = { protocolo: 'Protocolo', requerente_nome: 'Requerente', requerente_email: 'E-mail', emails_extra: 'E-mails adicionais', imovel: 'Imóvel', matricula: 'Matrícula', tipo_usucapiao: 'Tipo', data_prenotacao: 'Data de prenotação', referencia: 'Referência', advogado_id: 'Advogado', responsavel_id: 'Responsável', responsavel_externo_id: 'Responsável (sem conta)' };
+  var FIELD = { protocolo: 'Protocolo', requerente_nome: 'Requerente', requerente_email: 'E-mail', emails_extra: 'E-mails adicionais', imovel: 'Imóvel', matricula: 'Matrícula', tipo_usucapiao: 'Tipo', data_prenotacao: 'Data de prenotação', referencia: 'Referência', advogado_id: 'Advogado', responsavel_id: 'Responsável', responsavel_externo_id: 'Responsável (sem conta)', valor: 'Valor' };
   function fmtVal(c, v) {
     if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '—';
     if (c === 'responsavel_id') return userName(v);
     if (c === 'responsavel_externo_id') { var xx = extById(v); return xx ? xx.nome : '#' + v; }
     if (c === 'advogado_id') { var a = advById(v); return a ? a.nome : '#' + v; }
     if (c === 'data_prenotacao') return fmtYMD(v);
+    if (c === 'valor') return brl(v);
     if (Array.isArray(v)) return v.join(', ');
     return String(v);
   }
@@ -800,6 +804,7 @@
         '<label for="edRef">Referência curta <span class="opt">(aparece ao advogado, ex.: Chácara Santa Luzia)</span></label><input type="text" id="edRef" maxlength="80" value="' + esc(pa.referencia || '') + '">' +
         '<div class="grid2"><div><label for="edMat">Matrícula</label><input type="text" id="edMat" maxlength="40" value="' + esc(pa.matricula || '') + '"></div>' +
         '<div><label for="edPren">Data da prenotação</label><input type="date" id="edPren" value="' + esc(pa.data_prenotacao || '') + '"></div></div>' +
+        '<label for="edVal">Valor <span class="opt">(R$, valor do ato ou base de cálculo; uso interno, não aparece na consulta pública)</span></label><input type="text" id="edVal" inputmode="decimal" maxlength="20" placeholder="0,00" value="' + (pa.valor != null ? esc(Number(pa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' +
         '<label for="edTipo">Tipo de usucapião</label><input type="text" id="edTipo" maxlength="60" list="dlTipos" value="' + esc(pa.tipo_usucapiao || '') + '"><datalist id="dlTipos">' + TIPOS.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
         '<label for="edAdv">Advogado / representante</label>' + advSelect('edAdv', pa.advogado_id) +
         '<div class="err" id="edErr" role="alert"></div><button type="submit" class="btn primary" id="edSave">Salvar dados</button></form>' +
@@ -883,8 +888,10 @@
     if (extras.length > 5) return (err.textContent = 'Use no máximo 5 e-mails adicionais.');
     var ruim = extras.find(function (x) { return !EMAIL_RE.test(x); });
     if (ruim) return (err.textContent = 'E-mail inválido: ' + ruim);
+    var valor = parseBrl($('#edVal').value);
+    if (valor !== null && isNaN(valor)) return (err.textContent = 'Valor inválido. Use o formato 1.234,56.');
     var campos = {
-      protocolo: proto, requerente_nome: nome, requerente_email: mail, emails_extra: extras, imovel: imo,
+      valor: valor, protocolo: proto, requerente_nome: nome, requerente_email: mail, emails_extra: extras, imovel: imo,
       referencia: $('#edRef').value.trim() || null, matricula: $('#edMat').value.trim() || null,
       data_prenotacao: $('#edPren').value || null, tipo_usucapiao: $('#edTipo').value.trim() || null,
       advogado_id: $('#edAdv').value ? +$('#edAdv').value : null, atualizado_em: new Date().toISOString()
@@ -1010,7 +1017,7 @@
 
   /* ---------- tour do primeiro acesso ---------- */
   var TOUR = [
-    ['Bem-vindo à Visualizador de Usucapiões', 'Aqui você acompanha todos os processos do cartório. O requerente consulta só o andamento, digitando o número do protocolo. Este tour leva menos de um minuto.'],
+    ['Bem-vindo ao Visualizador de Usucapiões', 'Aqui você acompanha todos os processos do cartório. O requerente consulta só o andamento, digitando o número do protocolo. Este tour leva menos de um minuto.'],
     ['O quadro', 'Cada coluna é uma fase. Arraste um cartão para a fase seguinte (ou abra o cartão e escolha a fase). Ao mover, você escreve a mensagem para o requerente e pode conferir a prévia do e-mail.'],
     ['Errou? Desfaça', 'Depois de mover um processo aparece o botão “Desfazer” por alguns segundos. Os e-mails só saem cerca de 1 minuto depois, para dar tempo de corrigir.'],
     ['Com quem está o processo', 'Clique no nome no pé do cartão para passar o caso a outro escrevente, mesmo quem não tem conta no painel. Em “Selecionar vários” você muda de responsável ou de fase vários cartões de uma vez.'],
@@ -1426,12 +1433,12 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
   function exportCsv() {
-    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'];
+    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em', 'Valor (R$)'];
     var rows = S.procs.slice().sort(function (a, b) { return a.protocolo.localeCompare(b.protocolo, 'pt-BR', { numeric: true }); }).map(function (p) {
       var a = advById(p.advogado_id);
       return [p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra || []).join(' | '), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
         p.data_prenotacao ? fmtYMD(p.data_prenotacao) : '', a ? a.nome : '', faseById(p.fase_id).nome, respKey(p) ? respName(p) : '',
-        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].map(csvCell).join(';');
+        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em), p.valor != null ? String(p.valor).replace('.', ',') : ''].map(csvCell).join(';');
     });
     var blob = new Blob(['﻿' + head.map(csvCell).join(';') + '\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
