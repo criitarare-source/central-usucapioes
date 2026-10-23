@@ -444,7 +444,7 @@
     return '<article class="card ' + nivel + (SEL.ids[p.id] ? ' is-sel' : '') + '" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
       '<div class="card-top">' + (SEL.on ? '<span class="selbox" aria-hidden="true">' + (SEL.ids[p.id] ? '✓' : '') + '</span>' : '') + '<span class="proto">' + esc(p.protocolo) + '</span><span class="grip" aria-hidden="true">' + ICON.grip + '</span></div>' +
       '<div class="nome">' + esc(p.requerente_nome) + '</div><div class="imovel">' + esc(p.referencia || p.imovel) + '</div>' +
-      (p.valor != null ? '<div class="valor" title="Valor do ato / base de cálculo">' + brl(p.valor) + '</div>' : '') +
+      (isOficial() && p.valor != null ? '<div class="valor" title="Valor do ato / base de cálculo">' + brl(p.valor) + '</div>' : '') +
       (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
       '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age' + ageCls + '" title="Tempo nesta fase">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
   }
@@ -1433,12 +1433,12 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
   function exportCsv() {
-    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em', 'Valor (R$)'];
+    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'].concat(isOficial() ? ['Valor (R$)'] : []);
     var rows = S.procs.slice().sort(function (a, b) { return a.protocolo.localeCompare(b.protocolo, 'pt-BR', { numeric: true }); }).map(function (p) {
       var a = advById(p.advogado_id);
       return [p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra || []).join(' | '), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
         p.data_prenotacao ? fmtYMD(p.data_prenotacao) : '', a ? a.nome : '', faseById(p.fase_id).nome, respKey(p) ? respName(p) : '',
-        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em), p.valor != null ? String(p.valor).replace('.', ',') : ''].map(csvCell).join(';');
+        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].concat(isOficial() ? [p.valor != null ? String(p.valor).replace('.', ',') : ''] : []).map(csvCell).join(';');
     });
     var blob = new Blob(['﻿' + head.map(csvCell).join(';') + '\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
