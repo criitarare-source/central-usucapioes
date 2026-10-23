@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
 
-VERSAO = "1.9"
+VERSAO = "1.10"
 DATA = "22/10/2026"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(AQUI, "..", "assets", "logo.jpg")
@@ -37,7 +37,7 @@ story += [cab, Spacer(1, 4)]
 
 story.append(sec("1. Entrar no painel", [
     f"Endereço: <b>{URL}/painel</b> (funciona no computador e no celular).",
-    "Primeiro acesso: <b>Criar conta</b> com o seu nome (como aparece nos cartões) e e-mail. Confirme o e-mail pelo link recebido e <b>aguarde o Oficial aprovar</b> o seu acesso.",
+    "Primeiro acesso: <b>Criar conta</b> com o seu nome (como aparece nos cartões) e e-mail. <b>Aguarde o Oficial aprovar</b> o seu acesso.",
     "Esqueceu a senha? Use <b>Esqueci a senha</b>. Não compartilhe a sua senha.",
 ]))
 story.append(sec("2. O quadro", [
