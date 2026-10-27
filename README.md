@@ -118,3 +118,7 @@ Painel com processos por fase, carga por escrevente, entradas/conclusões por m�
 - Botão **Valores** (só Oficial) oculta Valor e Emolumentos nas telas; preferência salva no aparelho.
 - Tema padrão: claro (chave `central_prefs2`, que reinicia escolhas antigas).
 - Carga dos usucapiões concluídos (Regwin, 27/10/2026): 12 processos na fase Concluído, sem e-mails.
+
+## Auditoria, backup completo e testes
+- Aba **Auditoria** (só Oficial): histórico unificado de mudanças de fase, observações, prazos e alterações de dados (inclui valor, emolumentos e valor dos registros), com filtros e CSV.
+- Backup semanal: CSV + JSON completo por e-mail ao cartório. Restauração: `docs/RESTAURAR-BACKUP.md` e `docs/restaurar_backup.py`.

@@ -283,6 +283,85 @@
   }
 
   /* ---------- estrutura do app ---------- */
+  /* ---------- auditoria (só Oficial) ---------- */
+  var AU = { ev: null, err: false, q: '', who: 'all', grupo: 'all', dias: 30, lim: 100 };
+  function auQuem(por) { if (!por) return 'Sistema (carga de dados)'; var u = userById(por); return u ? u.nome : 'Conta removida'; }
+  function auCarregar(cb) {
+    Promise.all([
+      sb.from('auditoria').select('*').order('em', { ascending: false }).limit(2000),
+      sb.from('historico').select('*').order('em', { ascending: false }).limit(2000)
+    ]).then(function (rs) {
+      if (rs[0].error || rs[1].error) { AU.err = true; AU.ev = []; return cb(); }
+      var ev = [];
+      rs[0].data.forEach(function (a) {
+        var p = a.processo_id ? byId(a.processo_id) : null, det = a.detalhes || {}, linhas = [];
+        var titulo = a.acao === 'criado' ? 'Processo criado' : a.acao === 'protocolo_alterado' ? 'Protocolo alterado' : a.acao === 'editado' ? 'Dados alterados' : a.acao === 'excluido' ? 'Processo excluído' : 'Quadro apagado';
+        if (a.acao === 'excluido') linhas.push('Requerente: ' + (det.requerente || '—'));
+        else if (a.acao === 'quadro_limpo') linhas.push('Processos apagados: ' + det.processos);
+        else Object.keys(det).forEach(function (c) { linhas.push((FIELD[c] || c) + ': ' + fmtVal(c, det[c].de) + ' → ' + fmtVal(c, det[c].para)); });
+        ev.push({ em: a.em, por: a.por, proto: a.protocolo || '', nome: p ? p.requerente_nome : (det.requerente || ''), grupo: 'dados', titulo: titulo, linhas: linhas });
+      });
+      rs[1].data.forEach(function (h) {
+        var p = byId(h.processo_id); if (!p) return;
+        var linhas = [];
+        if (h.mensagem) linhas.push('Mensagem: ' + (h.mensagem.length > 140 ? h.mensagem.slice(0, 140) + '…' : h.mensagem));
+        if (h.prazo_edital) linhas.push('Prazo do edital: ' + fmtYMD(h.prazo_edital));
+        if (h.tipo === 'fase') linhas.push(h.email_solicitado ? 'E-mail ao requerente solicitado' : 'Sem e-mail ao requerente');
+        ev.push({ em: h.em, por: h.por, proto: p.protocolo, nome: p.requerente_nome, grupo: h.tipo === 'fase' ? 'fases' : h.tipo === 'prazo' ? 'prazos' : 'notas',
+          titulo: h.tipo === 'fase' ? 'Mudou para “' + faseById(h.fase_id).nome + '”' : h.tipo === 'prazo' ? 'Prazo registrado' : 'Observação ao requerente', linhas: linhas });
+      });
+      ev.sort(function (x, y) { return x.em < y.em ? 1 : x.em > y.em ? -1 : 0; });
+      AU.ev = ev; AU.err = false; cb();
+    });
+  }
+  function auFiltrados() {
+    var q = AU.q.trim().toLowerCase(), corte = AU.dias ? Date.now() - AU.dias * 86400000 : 0;
+    return (AU.ev || []).filter(function (e) {
+      if (AU.grupo !== 'all' && e.grupo !== AU.grupo) return false;
+      if (AU.who === 'sys' ? !!e.por : AU.who !== 'all' && e.por !== AU.who) return false;
+      if (corte && new Date(e.em).getTime() < corte) return false;
+      if (q && (e.proto + ' ' + e.nome).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+  function auLista() {
+    var lista = auFiltrados(), mostra = lista.slice(0, AU.lim);
+    var host = $('#auLista'); if (!host) return;
+    host.innerHTML = !lista.length ? '<p class="muted">Nada encontrado com esses filtros.</p>' :
+      '<div class="au-wrap"><table class="tbl"><thead><tr><th>Quando</th><th>Quem</th><th>Processo</th><th>O que aconteceu</th></tr></thead><tbody>' + mostra.map(function (e) {
+        return '<tr><td class="nowrap">' + esc(fmtDT(e.em)) + '</td><td>' + esc(auQuem(e.por)) + '</td><td><b>' + esc(e.proto) + '</b><div class="muted small">' + esc(e.nome) + '</div></td><td><b>' + esc(e.titulo) + '</b>' +
+          e.linhas.map(function (l) { return '<div class="small">' + esc(l) + '</div>'; }).join('') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      (lista.length > mostra.length ? '<p style="margin-top:10px"><button type="button" class="btn sm" id="auMais">Mostrar mais (' + (lista.length - mostra.length) + ' restantes)</button></p>' : '');
+    $('#auCount').textContent = lista.length + ' ' + plural(lista.length, 'registro', 'registros');
+    if ($('#auMais')) $('#auMais').onclick = function () { AU.lim += 100; auLista(); };
+  }
+  function auCsv() {
+    var head = ['Quando', 'Quem', 'Protocolo', 'Requerente', 'Ação', 'Detalhes'];
+    var rows = auFiltrados().map(function (e) { return [fmtDT(e.em), auQuem(e.por), e.proto, e.nome, e.titulo, e.linhas.join(' | ')].map(csvCell).join(';'); });
+    var blob = new Blob(['﻿' + head.map(csvCell).join(';') + '\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'auditoria-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function renderAuditoria() {
+    var pessoas = S.equipe.filter(function (u) { return u.aprovado; });
+    var opt = function (v, t, sel) { return '<option value="' + v + '"' + (sel ? ' selected' : '') + '>' + esc(t) + '</option>'; };
+    $('#body').innerHTML = '<div class="page gut"><div class="page-h"><div><h2>Auditoria</h2><p class="muted" style="margin:0">Quem fez o quê e quando: mudanças de fase, observações, prazos e alterações nos dados dos processos.</p></div><span class="muted" id="auCount"></span></div>' +
+      '<div class="row2 wrap" style="margin:10px 0"><input type="search" id="auQ" placeholder="Protocolo ou nome" aria-label="Buscar por protocolo ou nome" value="' + esc(AU.q) + '">' +
+      '<select id="auWho" aria-label="Filtrar por pessoa">' + opt('all', 'Todas as pessoas', AU.who === 'all') + pessoas.map(function (u) { return opt(u.id, u.nome, AU.who === u.id); }).join('') + opt('sys', 'Sistema (carga de dados)', AU.who === 'sys') + '</select>' +
+      '<select id="auGrupo" aria-label="Filtrar por tipo">' + [['all', 'Todos os tipos'], ['fases', 'Mudanças de fase'], ['dados', 'Alterações nos dados'], ['prazos', 'Prazos'], ['notas', 'Observações']].map(function (o) { return opt(o[0], o[1], AU.grupo === o[0]); }).join('') + '</select>' +
+      '<select id="auDias" aria-label="Período">' + [[7, 'Últimos 7 dias'], [30, 'Últimos 30 dias'], [90, 'Últimos 90 dias'], [0, 'Todo o período']].map(function (o) { return opt(o[0], o[1], AU.dias === o[0]); }).join('') + '</select>' +
+      '<button type="button" class="btn sm" id="auCsv">Baixar CSV</button></div><div id="auLista"><p class="muted">Carregando…</p></div></div>';
+    var refiltra = function () { AU.lim = 100; auLista(); };
+    $('#auQ').oninput = function () { AU.q = this.value; refiltra(); };
+    $('#auWho').onchange = function () { AU.who = this.value; refiltra(); };
+    $('#auGrupo').onchange = function () { AU.grupo = this.value; refiltra(); };
+    $('#auDias').onchange = function () { AU.dias = +this.value; refiltra(); };
+    $('#auCsv').onclick = auCsv;
+    var pinta = function () { if (AU.err) { $('#auLista').innerHTML = '<p class="muted">Não foi possível carregar a auditoria agora.</p>'; return; } auLista(); };
+    auCarregar(pinta);
+  }
+
   /* ---------- gráficos ---------- */
   var GR = { est: null, em: 0, err: null };
   var GR_COR = ['#1C5A45', '#2E8B73', '#A8751F', '#C9962F', '#4F67A8', '#7A58A6', '#B5483A', '#6F7C74', '#9AA79F'];
@@ -404,7 +483,7 @@
     var tabs = tab('quadro', 'Quadro') + tab('prazos', 'Prazos') + tab('advogados', 'Advogados') + tab('graficos', 'Gráficos');
     if (isOficial()) {
       var n = pendentesCount();
-      tabs += tab('equipe', 'Equipe', n ? '<span class="badge-n">' + n + '</span>' : '') + tab('emails', 'E-mails') + tab('ajustes', 'Ajustes');
+      tabs += tab('equipe', 'Equipe', n ? '<span class="badge-n">' + n + '</span>' : '') + tab('auditoria', 'Auditoria') + tab('emails', 'E-mails') + tab('ajustes', 'Ajustes');
     }
     tabs += tab('conta', 'Minha conta');
     $('#root').innerHTML =
@@ -428,6 +507,7 @@
     document.querySelectorAll('.tab').forEach(function (t) { t.onclick = function () { S.view = t.dataset.view; SEL.on = false; SEL.ids = {}; renderApp(); }; });
     var v = S.view;
     if (v === 'equipe' && isOficial()) renderEquipe();
+    else if (v === 'auditoria' && isOficial()) renderAuditoria();
     else if (v === 'emails' && isOficial()) renderEmails();
     else if (v === 'ajustes' && isOficial()) renderAjustes();
     else if (v === 'prazos') renderPrazos();
@@ -859,12 +939,13 @@
     return String(v);
   }
   function auditHTML(rows) {
+    if (!isOficial()) rows = rows.filter(function (a) { return !(a.acao === 'editado' && Object.keys(a.detalhes || {}).every(function (c) { return c === 'emolumentos' || c === 'registros'; })); });
     if (!rows.length) return '<p class="muted small">Nenhuma alteração registrada.</p>';
     return '<ul class="hist">' + rows.map(function (a) {
       var det = a.detalhes || {}, linhas = '';
       if (a.acao === 'excluido') linhas = '<p>Processo excluído (' + esc(det.requerente || '') + ').</p>';
       else if (a.acao === 'quadro_limpo') linhas = '<p>Todos os processos foram apagados (' + esc(det.processos) + ').</p>';
-      else linhas = Object.keys(det).map(function (c) { return '<p><b>' + esc(FIELD[c] || c) + ':</b> ' + esc(fmtVal(c, det[c].de)) + ' → ' + esc(fmtVal(c, det[c].para)) + '</p>'; }).join('');
+      else linhas = Object.keys(det).filter(function (c) { return isOficial() || (c !== 'emolumentos' && c !== 'registros'); }).map(function (c) { return '<p><b>' + esc(FIELD[c] || c) + ':</b> ' + esc(fmtVal(c, det[c].de)) + ' → ' + esc(fmtVal(c, det[c].para)) + '</p>'; }).join('');
       var titulo = a.acao === 'criado' ? 'Processo criado' : a.acao === 'protocolo_alterado' ? 'Protocolo alterado' : a.acao === 'editado' ? 'Dados alterados' : a.acao === 'excluido' ? 'Processo excluído' : 'Quadro apagado';
       return '<li><b>' + titulo + '</b><time>' + fmtDT(a.em) + ' · ' + esc(userName(a.por)) + '</time>' + linhas + '</li>';
     }).join('') + '</ul>';

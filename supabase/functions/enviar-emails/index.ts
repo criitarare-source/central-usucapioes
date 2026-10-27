@@ -169,8 +169,28 @@ async function resumoDiario(sb: ReturnType<typeof createClient>, json: (o: unkno
   return json({ resumo: true, enviados, falhas });
 }
 
-// Backup semanal: planilha CSV completa enviada SÓ ao e-mail do cartório (BACKUP_EMAIL ou e-mail do Oficial).
+// Backup semanal: planilha CSV legível + arquivo JSON completo (todas as tabelas), enviados SÓ ao e-mail do cartório
+// (BACKUP_EMAIL ou e-mail do Oficial). Não inclui senhas nem os códigos dos advogados. Para restaurar: docs/RESTAURAR-BACKUP.md.
 // Roda no máximo 1 vez a cada 100 horas, mesmo se chamado de fora.
+// deno-lint-ignore no-explicit-any
+type Linha2 = Record<string, any>;
+async function todas(sb: ReturnType<typeof createClient>, tabela: string, colunas: string, ordem: string): Promise<Linha2[]> {
+  const out: Linha2[] = [];
+  for (let de = 0; de < 100000; de += 1000) {
+    const { data, error } = await sb.from(tabela).select(colunas).order(ordem).range(de, de + 999);
+    if (error) throw new Error(`${tabela}: ${error.message}`);
+    out.push(...((data ?? []) as Linha2[]));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+function paraBase64(texto: string): string {
+  const bytes = new TextEncoder().encode(texto);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unknown, s?: number) => Response) {
   const { data: liberado } = await sb.rpc("liberar_execucao", { p_nome: "backup", p_horas: 100 });
   if (!liberado) return json({ backup: false, ignorado: "já enviado nesta semana" });
@@ -182,47 +202,62 @@ async function backupSemanal(sb: ReturnType<typeof createClient>, json: (o: unkn
       dest = of?.email ?? "";
     }
     if (!dest) { await reabrir(); return json({ backup: false, erro: "sem e-mail de destino" }, 500); }
-    const [pr, fa, ad, pe, ex, pz] = await Promise.all([
-      sb.from("processos").select("*").order("protocolo").range(0, 4999),
-      sb.from("fases").select("id,nome"),
-      sb.from("advogados").select("id,nome"),
-      sb.from("perfis").select("id,nome"),
-      sb.from("pessoas_externas").select("id,nome"),
-      sb.from("prazos").select("processo_id,tipo,descricao,vence_em").eq("situacao", "aberto").order("vence_em"),
+
+    const [pr, fa, ad, pf, ex, pz, hi, ms, au] = await Promise.all([
+      todas(sb, "processos", "*", "id"),
+      todas(sb, "fases", "*", "id"),
+      todas(sb, "advogados", "id,nome,email,copia_email,ativo,criado_em", "id"),
+      todas(sb, "perfis", "id,nome,email,papel,aprovado,resumo_diario,criado_em", "criado_em"),
+      todas(sb, "pessoas_externas", "*", "id"),
+      todas(sb, "prazos", "*", "id"),
+      todas(sb, "historico", "*", "id"),
+      todas(sb, "mensagens_padrao", "*", "id"),
+      todas(sb, "auditoria", "*", "id"),
     ]);
-    if (pr.error) throw new Error(pr.error.message);
-    const nome = (l: { id: number | string; nome: string }[] | null, id: unknown) => (l ?? []).find((x) => x.id === id)?.nome ?? "";
+
+    const nome = (l: Linha2[], id: unknown) => l.find((x) => x.id === id)?.nome ?? "";
     const cel = (v: unknown) => {
       let t = v == null ? "" : String(v);
       if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
       return '"' + t.replace(/"/g, '""') + '"';
     };
+    const dec = (v: unknown) => (v == null || v === "" ? "" : String(v).replace(".", ","));
     const fmt = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "");
     const tipoPz: Record<string, string> = { intimacao: "Intimação", edital: "Edital", exigencia: "Exigência", outro: "Prazo" };
-    const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo de usucapião", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em", "Notas internas", "Valor (R$)"];
-    const linhas = (pr.data ?? []).map((p: Record<string, any>) => [
+    const cab = ["Protocolo", "Requerente", "E-mail", "E-mails adicionais", "Imóvel", "Referência", "Matrícula", "Tipo de usucapião", "Data da prenotação", "Advogado", "Fase", "Responsável", "Prazos em aberto", "Na fase desde", "Criado em", "Notas internas", "Valor (R$)", "Emolumentos pagos (R$)", "Valor de cada registro (R$)"];
+    const abertos = pz.filter((z) => z.situacao === "aberto").sort((a, b) => String(a.vence_em).localeCompare(String(b.vence_em)));
+    const ordenados = pr.slice().sort((a, b) => String(a.protocolo).localeCompare(String(b.protocolo), "pt-BR", { numeric: true }));
+    const linhas = ordenados.map((p) => [
       p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra ?? []).join(" | "), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
-      fmt(p.data_prenotacao), nome(ad.data, p.advogado_id), nome(fa.data, p.fase_id),
-      p.responsavel_id ? nome(pe.data, p.responsavel_id) : p.responsavel_externo_id ? nome(ex.data, p.responsavel_externo_id) : "",
-      (pz.data ?? []).filter((z: any) => z.processo_id === p.id).map((z: any) => `${tipoPz[z.tipo] ?? "Prazo"}${z.descricao ? " - " + z.descricao : ""}: ${fmt(z.vence_em)}`).join(" | "),
-      fmt(p.fase_desde), fmt(p.criado_em), p.notas_internas, p.valor != null ? String(p.valor).replace(".", ",") : "",
+      fmt(p.data_prenotacao), nome(ad, p.advogado_id), nome(fa, p.fase_id),
+      p.responsavel_id ? nome(pf, p.responsavel_id) : p.responsavel_externo_id ? nome(ex, p.responsavel_externo_id) : "",
+      abertos.filter((z) => z.processo_id === p.id).map((z) => `${tipoPz[z.tipo] ?? "Prazo"}${z.descricao ? " - " + z.descricao : ""}: ${fmt(z.vence_em)}`).join(" | "),
+      fmt(p.fase_desde), fmt(p.criado_em), p.notas_internas, dec(p.valor), dec(p.emolumentos), (p.registros ?? []).map(dec).join(" | "),
     ].map(cel).join(";"));
-    const csv = "\uFEFF" + cab.map(cel).join(";") + "\r\n" + linhas.join("\r\n");
-    const bytes = new TextEncoder().encode(csv);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const csv = "﻿" + cab.map(cel).join(";") + "\r\n" + linhas.join("\r\n");
+
+    const contagens = { processos: pr.length, historico: hi.length, prazos: pz.length, advogados: ad.length, pessoas_externas: ex.length, perfis: pf.length, fases: fa.length, mensagens_padrao: ms.length, auditoria: au.length };
+    const completo = JSON.stringify({
+      gerado_em: new Date().toISOString(), versao: 2, contagens,
+      aviso: "Não contém senhas nem os códigos dos advogados (precisam ser gerados de novo). Contém dados pessoais (LGPD).",
+      tabelas: { fases: fa, advogados: ad, pessoas_externas: ex, perfis: pf, processos: pr, historico: hi, prazos: pz, mensagens_padrao: ms, auditoria: au },
+    });
+
     const hoje = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: FROM, to: [dest], subject: `Backup semanal do Visualizador de Usucapiões (${linhas.length} processos)`,
-        text: `Segue em anexo a planilha completa dos processos em ${fmt(hoje)} (${linhas.length} processos).\n\nO arquivo contém dados pessoais (LGPD): guarde em local protegido, não encaminhe e apague e-mails antigos que não precisar manter.`,
-        attachments: [{ filename: `usucapioes-${hoje}.csv`, content: btoa(bin) }],
+        text: `Seguem dois arquivos em ${fmt(hoje)}:\n\n1) usucapioes-${hoje}.csv: planilha legível dos ${linhas.length} processos (abre no Excel).\n2) backup-completo-${hoje}.json: cópia completa (processos, histórico, prazos, advogados, equipe, auditoria) para restaurar o sistema. Veja docs/RESTAURAR-BACKUP.md no repositório.\n\nOs arquivos contêm dados pessoais (LGPD): guarde em local protegido, não encaminhe e apague e-mails antigos que não precisar manter.`,
+        attachments: [
+          { filename: `usucapioes-${hoje}.csv`, content: paraBase64(csv) },
+          { filename: `backup-completo-${hoje}.json`, content: paraBase64(completo) },
+        ],
       }),
     });
     if (!resp.ok) { await reabrir(); return json({ backup: false, erro: `Resend ${resp.status}` }, 500); }
-    return json({ backup: true, processos: linhas.length });
+    return json({ backup: true, processos: linhas.length, contagens });
   } catch (e) {
     await reabrir();
     return json({ backup: false, erro: String((e as Error).message ?? e) }, 500);

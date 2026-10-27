@@ -500,3 +500,8 @@ html[data-theme="dark"] .card .valor{color:#9fd3b8}
 .card .emol{font-size:.8rem;color:var(--ink-3,#66786F);margin-top:1px;font-variant-numeric:tabular-nums}
 .card .emol.est{font-style:italic}
 .card .emol small{opacity:.75}
+
+/* auditoria */
+.au-wrap{overflow-x:auto}
+.au-wrap .tbl{margin-top:0}
+.nowrap{white-space:nowrap}
