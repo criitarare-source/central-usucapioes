@@ -89,7 +89,8 @@ Deno.serve(async (req) => {
   if (corpo?.modo === "resumo") return await resumoDiario(sb, json);
   if (corpo?.modo === "backup") return await backupSemanal(sb, json);
   const acessos = await enviarAcessos(sb);
-  if (corpo?.modo === "acesso") return json({ acessos });
+  const links = await enviarLinks(sb);
+  if (corpo?.modo === "acesso") return json({ acessos, links });
   const { data, error } = await sb.rpc("reservar_emails_v4", { p_limite: 20 });
   if (error) return json({ erro: error.message }, 500);
 
@@ -119,7 +120,7 @@ Deno.serve(async (req) => {
       }).eq("id", r.email_id);
     }
   }
-  return json({ enviados, falhas, acessos });
+  return json({ enviados, falhas, acessos, links });
 });
 
 // Link de acesso do advogado (válido 30 minutos), pedido na página pública com o e-mail cadastrado.
@@ -140,6 +141,31 @@ async function enviarAcessos(sb: ReturnType<typeof createClient>) {
       });
       if (resp.ok) n++;
     } catch { /* tenta de novo no próximo pedido do advogado */ }
+  }
+  return n;
+}
+
+// Link pessoal e permanente do advogado (sem prazo): enviado ao cadastrar o e-mail ou quando o Oficial pede.
+async function enviarLinks(sb: ReturnType<typeof createClient>) {
+  const { data, error } = await sb.rpc("reservar_links");
+  if (error || !data) return 0;
+  let n = 0;
+  for (const a of data as { advogado_id: number; email: string; nome: string; token: string }[]) {
+    const link = `${SITE}/?acesso=${encodeURIComponent(a.token)}`;
+    const primeiro = (a.nome ?? "").trim().split(/\s+/)[0] || "";
+    const html = `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#EDF0EA;font-family:Arial,Helvetica,sans-serif;color:#13261F"><table role="presentation" width="100%" style="background:#EDF0EA"><tr><td align="center" style="padding:24px 12px"><table role="presentation" width="560" style="max-width:560px;width:100%;background:#fff;border-radius:12px;overflow:hidden"><tr><td style="background:#0F3B2D;color:#F2F7F3;padding:18px 24px;font-size:18px;font-weight:bold">Registro de Im\u00f3veis de Itarar\u00e9</td></tr><tr><td style="padding:24px"><p style="margin:0 0 12px;font-size:16px">Ol\u00e1${primeiro ? ", " + esc(primeiro) : ""}!</p><p style="margin:0 0 16px;font-size:15px;line-height:1.5">Seu e-mail foi cadastrado no Registro de Im\u00f3veis de Itarar\u00e9. Use o bot\u00e3o abaixo para acompanhar o andamento de <b>todos os seus processos de usucapi\u00e3o extrajudicial</b>. Guarde este e-mail: o link \u00e9 pessoal e n\u00e3o tem prazo de validade.</p><p style="margin:24px 0"><a href="${esc(link)}" style="background:#0F3B2D;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold;display:inline-block">Ver meus processos</a></p><p style="margin:0 0 8px;font-size:12px;color:#66786F;line-height:1.5">Se o bot\u00e3o n\u00e3o abrir, copie este endere\u00e7o no navegador:<br>${esc(link)}</p><p style="margin:0;font-size:12px;color:#66786F;line-height:1.5">N\u00e3o encaminhe este e-mail: quem tiver o link v\u00ea a sua lista de processos. Se precisar anular o link, pe\u00e7a ao cart\u00f3rio um novo.</p></td></tr></table></td></tr></table></body></html>`;
+    const texto = `Ol\u00e1${primeiro ? ", " + primeiro : ""}!\n\nSeu e-mail foi cadastrado no Registro de Im\u00f3veis de Itarar\u00e9. Use o link para acompanhar todos os seus processos de usucapi\u00e3o extrajudicial (pessoal, sem prazo de validade):\n${link}\n\nN\u00e3o encaminhe este e-mail. Se precisar anular o link, pe\u00e7a ao cart\u00f3rio um novo.`;
+    let ok = false;
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: FROM, to: [a.email], subject: "Acompanhe todos os seus processos de usucapi\u00e3o", html, text: texto }),
+      });
+      ok = resp.ok;
+    } catch { ok = false; }
+    if (ok) n++;
+    else await sb.rpc("rearmar_link", { p_adv: a.advogado_id }); // gera de novo e tenta no pr\u00f3ximo minuto
   }
   return n;
 }

@@ -130,6 +130,30 @@ def graficos_mostram_emolumentos_dos_concluidos(srv):
         confere('Emolumentos dos concluídos' in t and 'estimado' in t.lower(), 'faltou a parte dos concluídos')
         confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
 
+@teste
+def link_permanente_do_advogado_abre_a_lista(srv):
+    with Navegador(srv, 'oficial', 420, 900) as n:
+        n.page.goto(srv.url + '/index.html?acesso=tokenvalido'); n.page.wait_for_timeout(1000)
+        t = n.page.inner_text('#out')
+        confere('área do advogado' in t.lower() and 'João da S. R.' in t, 'o link permanente não abriu a lista: ' + t[:200])
+        n.page.goto(srv.url + '/index.html?acesso=outro'); n.page.wait_for_timeout(800)
+        confere('não é mais válido' in n.page.inner_text('#out'), 'link inválido deveria ser recusado')
+        confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
+
+@teste
+def oficial_envia_link_ao_advogado_e_escrevente_nao_ve_botao(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        p.click('[data-view=advogados]'); p.wait_for_timeout(700)
+        confere('Enviar link a quem ainda não recebeu' in p.inner_text('.page'), 'faltou o botão de envio em lote')
+        p.click('[data-al]'); p.wait_for_timeout(300); p.click('#cfOk'); p.wait_for_timeout(600)
+        confere([c for c in n.calls if c[0] == 'enviar_link_advogado'], 'não chamou enviar_link_advogado')
+        confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
+    with Navegador(srv, 'escrevente') as n:
+        n.entrar(); p = n.page
+        p.click('[data-view=advogados]'); p.wait_for_timeout(700)
+        confere('Enviar link' not in p.inner_text('.page'), 'escrevente não deveria ver o envio de link')
+
 def main():
     falhas = 0
     with Servidor() as srv:

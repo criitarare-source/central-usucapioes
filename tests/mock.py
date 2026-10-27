@@ -92,6 +92,9 @@ class Navegador:
                     nome = mm.group(2)
                     if mm.group(1):
                         self.calls.append((nome, route.request.post_data))
+                        if nome == 'status_links': return ok([])
+                        if nome == 'consulta_advogado_perm':
+                            return ok({"nome": "Dr. Fulano", "processos": [dict(CONSULTA, referencia="Chácara")]} if 'tokenvalido' in (route.request.post_data or '') else None)
                         return ok(ESTATISTICAS if nome == 'estatisticas' else CONSULTA if nome == 'consulta_publica' else {"id": 1})
                     if m != 'GET':
                         self.calls.append((m + ' ' + nome, route.request.post_data)); return ok([])

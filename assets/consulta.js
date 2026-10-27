@@ -339,5 +339,16 @@
 
   // Link direto, como o do e-mail: /?p=52474
   var q = new URLSearchParams(location.search).get('p');
-  if (q) { $('#pubProto').value = q; consultar(q); } else showResume();
+  // Link pessoal e permanente do advogado, recebido por e-mail: /?acesso=...
+  var ac = new URLSearchParams(location.search).get('acesso');
+  if (ac) {
+    var outA = $('#out');
+    outA.innerHTML = '<div class="loading">Abrindo seus processos…</div>';
+    Promise.all([sb.rpc('consulta_advogado_perm', { p_token: ac }), getFases()]).then(function (res) {
+      var r = res[0];
+      if (r.error) { outA.innerHTML = '<div class="notfound">' + (String(r.error.message || '').indexOf('Muitas consultas') >= 0 ? 'Muitas tentativas em pouco tempo. Aguarde um minuto e tente de novo.' : 'Não foi possível consultar agora. Tente de novo em instantes.') + '</div>'; return; }
+      if (!r.data) { outA.innerHTML = '<div class="notfound">Este link não é mais válido. Peça ao cartório que envie um novo.</div>'; return; }
+      mostrarAdv(r, res[1], outA);
+    }).catch(function () { outA.innerHTML = '<div class="notfound">Não foi possível consultar agora. Tente de novo em instantes.</div>'; });
+  } else if (q) { $('#pubProto').value = q; consultar(q); } else showResume();
 })();

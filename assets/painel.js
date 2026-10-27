@@ -1500,23 +1500,55 @@
             d.close();
             sb.from('advogados').select('id,nome,email,copia_email,codigo_final,ativo,criado_em').order('nome').then(function (rr) {
               if (!rr.error) S.advs = rr.data; renderApp();
-              if (novo) showCode('Código do advogado', nome, r.data); else toast('Dados salvos.');
+              S.linkSt = null;
+              if (novo) showCode('Código do advogado', nome, r.data); else toast('Dados salvos.' + (mail && mail !== (a.email || '') ? ' O link de acesso sai por e-mail em cerca de 1 minuto.' : ''));
             });
           });
         };
       });
   }
 
+  function linkTxt(a) {
+    if (!a.email) return '<span class="muted">sem e-mail</span>';
+    var st = S.linkSt && S.linkSt[a.id];
+    if (!st) return '<span class="muted">não enviado</span>';
+    if (st.na_fila) return 'na fila de envio';
+    return st.enviado_em ? 'enviado em ' + fmtDate(st.enviado_em) : '<span class="muted">não enviado</span>';
+  }
   function renderAdvogados() {
+    if (isOficial() && !S.linkSt) {
+      sb.rpc('status_links').then(function (r) {
+        S.linkSt = {}; (r.data || []).forEach(function (x) { S.linkSt[x.advogado_id] = x; });
+        if (S.view === 'advogados') renderAdvogados();
+      });
+    }
+    var of = isOficial();
+    var faltam = S.advs.filter(function (a) { var st = S.linkSt && S.linkSt[a.id]; return a.ativo && a.email && (!st || (!st.na_fila && !st.enviado_em)); });
     var cnt = function (id) { return S.procs.filter(function (p) { return p.advogado_id === id; }).length; };
     var rows = S.advs.map(function (a) {
       return '<tr><td><b>' + esc(a.nome) + '</b>' + (a.ativo ? '' : ' <span class="chip">Desativado</span>') + '</td><td>' + esc(a.email || '—') + (a.email && a.copia_email ? ' <span class="muted small">(recebe cópias)</span>' : '') + '</td>' +
         '<td>' + cnt(a.id) + '</td><td><code>…' + esc(a.codigo_final) + '</code></td>' +
-        '<td class="acts"><button class="btn sm" data-ae="' + a.id + '">Editar</button> <button class="btn sm" data-ar="' + a.id + '">Novo código</button> <button class="btn sm" data-at="' + a.id + '">' + (a.ativo ? 'Desativar' : 'Reativar') + '</button></td></tr>';
+        (of ? '<td>' + linkTxt(a) + '</td>' : '') +
+        '<td class="acts"><button class="btn sm" data-ae="' + a.id + '">Editar</button> ' + (of && a.ativo && a.email ? '<button class="btn sm" data-al="' + a.id + '">Enviar link</button> ' : '') + '<button class="btn sm" data-ar="' + a.id + '">Novo código</button> <button class="btn sm" data-at="' + a.id + '">' + (a.ativo ? 'Desativar' : 'Reativar') + '</button></td></tr>';
     }).join('');
-    $('#body').innerHTML = '<div class="page gut"><div class="page-h"><div><h2>Advogados e representantes</h2><p class="muted" style="margin:0">Quem tem mais de um processo recebe um código fixo. Digitando-o na página do cliente, ele vê a lista dos seus processos (protocolo, etapa e a referência curta), sem nomes dos requerentes.</p></div><button class="btn primary" id="avNew">' + ICON.plus + 'Novo advogado</button></div>' +
-      (S.advs.length ? '<div class="tblwrap"><table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Processos</th><th>Código</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="msg info" style="margin-top:12px">Nenhum advogado cadastrado ainda.</div>') + '</div>';
+    $('#body').innerHTML = '<div class="page gut"><div class="page-h"><div><h2>Advogados e representantes</h2><p class="muted" style="margin:0">Cada advogado recebe um código fixo e, se tiver e-mail cadastrado, um link pessoal por e-mail (sem prazo de validade) que abre a lista de todos os seus processos.</p></div><div class="gr-actions">' + (of && faltam.length ? '<button class="btn" id="avTodos">Enviar link a quem ainda não recebeu (' + faltam.length + ')</button> ' : '') + '<button class="btn primary" id="avNew">' + ICON.plus + 'Novo advogado</button></div></div>' +
+      (S.advs.length ? '<div class="tblwrap"><table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Processos</th><th>Código</th>' + (of ? '<th>Link por e-mail</th>' : '') + '<th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="msg info" style="margin-top:12px">Nenhum advogado cadastrado ainda.</div>') + '</div>';
     $('#avNew').onclick = function () { advForm(null); };
+    var enviarLink = function (lista, rotulo) {
+      return lista.reduce(function (pr, a) { return pr.then(function (acc) { return sb.rpc('enviar_link_advogado', { p_id: a.id }).then(function (r) { return acc + (r.error ? 0 : 1); }); }); }, Promise.resolve(0)).then(function (n) {
+        S.linkSt = null; renderAdvogados();
+        toast(n ? 'Link enviado a ' + n + ' ' + plural(n, 'advogado', 'advogados') + ' em cerca de 1 minuto.' : 'Não foi possível enviar.');
+      });
+    };
+    if ($('#avTodos')) $('#avTodos').onclick = function () {
+      confirmDialog({ titulo: 'Enviar o link de acesso?', ok: 'Enviar a ' + faltam.length, texto: 'Estes advogados receberão agora um e-mail com o link pessoal para ver todos os processos deles:<br><br>' + faltam.map(function (a) { return '• ' + esc(a.nome) + ' (' + esc(a.email) + ')'; }).join('<br>') }).then(function (ok) { if (ok) enviarLink(faltam); });
+    };
+    document.querySelectorAll('[data-al]').forEach(function (b) {
+      b.onclick = function () {
+        var a = advById(+b.dataset.al), st = S.linkSt && S.linkSt[a.id];
+        confirmDialog({ titulo: 'Enviar o link de acesso?', ok: 'Enviar link', texto: 'Um e-mail com o link pessoal sairá para <b>' + esc(a.email) + '</b>.' + (st ? ' <br>O link enviado antes deixa de funcionar.' : '') }).then(function (ok) { if (ok) enviarLink([a]); });
+      };
+    });
     document.querySelectorAll('[data-ae]').forEach(function (b) { b.onclick = function () { advForm(advById(+b.dataset.ae)); }; });
     document.querySelectorAll('[data-ar]').forEach(function (b) {
       b.onclick = function () {
