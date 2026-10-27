@@ -1087,8 +1087,9 @@
       prazo: ed ? fmtYMD(ed.vence_em) : pz ? fmtYMD(pz.vence_em) : '', advogado: a ? a.nome : '' };
     var out = String(texto).replace(/\{(nome|requerente|protocolo|fase|prazo|advogado)\}/gi, function (m, k) {
       k = k.toLowerCase(); if (vals[k]) return vals[k];
-      if (faltou.indexOf(k) < 0) faltou.push(k); return '[' + k + ']';
+      if (faltou.indexOf(k) < 0) faltou.push(k); return '';
     });
+    if (faltou.length) out = out.replace(/[ \t]+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
     return { texto: out, faltou: faltou };
   }
   function openMove(id, to, ord) {
@@ -1112,7 +1113,7 @@
     d.oninput = upd; upd();
     if ($('#mvPad')) $('#mvPad').onchange = function (e) {
       var m = S.msgs.find(function (x) { return String(x.id) === e.target.value; });
-      if (m) { var pr = preencherMsg(m.texto, p, to); $('#mvMsg').value = pr.texto.slice(0, 600); upd(); if (pr.faltou.length) toast('Complete no texto: ' + pr.faltou.join(', ') + '.'); }
+      if (m) { var pr = preencherMsg(m.texto, p, to); $('#mvMsg').value = pr.texto.slice(0, 600); upd(); if (pr.faltou.length) toast('Este processo não tem ' + pr.faltou.join(', ') + ': o trecho ficou em branco. Confira a frase antes de confirmar.'); }
       e.target.value = '';
     };
     $('#mvCancel').onclick = function () { d.close(); };
@@ -1935,7 +1936,7 @@
 
   function ajMensagens() {
     var grupos = [{ id: null, nome: 'Qualquer etapa' }].concat(S.fases.map(function (f) { return { id: f.id, nome: f.nome }; }));
-    $('#subBody').innerHTML = '<p class="muted">Textos prontos que os escreventes escolhem ao mover um processo. Máximo de 600 caracteres. Marcadores que se preenchem sozinhos: <code>{nome}</code> (primeiro nome do requerente), <code>{requerente}</code>, <code>{protocolo}</code>, <code>{fase}</code> (nova etapa), <code>{prazo}</code> (prazo do edital ou o mais próximo) e <code>{advogado}</code>. Se o processo não tiver o dado, o marcador fica entre colchetes para a pessoa completar.</p>' +
+    $('#subBody').innerHTML = '<p class="muted">Textos prontos que os escreventes escolhem ao mover um processo. Máximo de 600 caracteres. Marcadores que se preenchem sozinhos: <code>{nome}</code> (primeiro nome do requerente), <code>{requerente}</code>, <code>{protocolo}</code>, <code>{fase}</code> (nova etapa), <code>{prazo}</code> (prazo do edital ou o mais próximo) e <code>{advogado}</code>. Se o processo não tiver o dado, o marcador some do texto (confira a frase antes de enviar).</p>' +
       '<div class="card-box"><h3 style="margin:0 0 6px">Nova mensagem</h3><div class="grid2"><div><label for="mpFase">Etapa</label><select id="mpFase">' + grupos.map(function (g) { return '<option value="' + (g.id == null ? '' : g.id) + '">' + esc(g.nome) + '</option>'; }).join('') + '</select></div><div><label for="mpTit">Título</label><input type="text" id="mpTit" maxlength="80"></div></div>' +
       '<label for="mpTxt">Texto</label><textarea id="mpTxt" rows="3" maxlength="600"></textarea><div class="err" id="mpErr"></div><button class="btn primary" id="mpAdd">Adicionar</button></div>' +
       grupos.map(function (g) {

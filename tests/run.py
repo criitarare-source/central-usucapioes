@@ -200,6 +200,16 @@ def mensagem_pronta_preenche_marcadores(srv):
         confere(re.match(r'^Olá João, protocolo 52474 na etapa Qualificação\. Prazo \d\d/\d\d/\d{4}\. Adv Dr\. Fulano\.$', t), 'marcadores não preenchidos: ' + t)
 
 @teste
+def mensagem_pronta_sem_dado_some_sem_colchetes(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        p.click('.card[data-id="3"] .nome'); p.wait_for_timeout(500)
+        p.select_option('#dtFase', '2'); p.wait_for_timeout(400)
+        p.select_option('#mvPad', '1'); p.wait_for_timeout(300)
+        t = p.input_value('#mvMsg')
+        confere('[' not in t and '{' not in t and ' .' not in t and '  ' not in t and 'Prazo.' in t, 'texto sem dado deveria ficar limpo: ' + t)
+
+@teste
 def desfazer_em_lote_lista_e_desfaz(srv):
     with Navegador(srv, 'oficial') as n:
         n.entrar(); p = n.page
