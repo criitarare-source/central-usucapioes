@@ -1098,10 +1098,10 @@
     if (removeu || faltou.length) out = out.replace(/[ \t]+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '').replace(/^[ \t]+/gm, '').replace(/\n{3,}/g, '\n\n').trim();
     return { texto: out, faltou: faltou };
   }
-  function preencherMsg(texto, p, to) {
+  function preencherMsg(texto, p, to, prazoNovo) {
     var pz = openPrazos(p.id)[0], ed = openPrazos(p.id).filter(function (z) { return z.tipo === 'edital'; })[0], a = advById(p.advogado_id);
     return fillText(texto, { nome: primeiroNome(p.requerente_nome), requerente: p.requerente_nome, protocolo: p.protocolo, fase: faseById(to || p.fase_id).nome,
-      prazo: ed ? fmtYMD(ed.vence_em) : pz ? fmtYMD(pz.vence_em) : '', advogado: a ? a.nome : '' });
+      prazo: prazoNovo ? fmtYMD(prazoNovo) : ed ? fmtYMD(ed.vence_em) : pz ? fmtYMD(pz.vence_em) : '', advogado: a ? a.nome : '' });
   }
   function openMove(id, to, ord) {
     var p = byId(id); if (!p || p.fase_id === to) { renderBoard(); return; }
@@ -1122,11 +1122,18 @@
       '<div class="m-f"><button type="button" class="btn ghost" id="mvCancel">Cancelar</button><button type="button" class="btn primary" id="mvOk">Confirmar mudança</button></div></div>';
     var upd = function () { $('#mvPrev').innerHTML = mailHTML(p, to, $('#mvMsg').value.trim(), $('#mvPrazo') ? $('#mvPrazo').value : ''); };
     d.oninput = upd; upd();
+    var tplTxt = null, lastAuto = null;
+    var aplicaTpl = function () {
+      var pr = preencherMsg(tplTxt, p, to, $('#mvPrazo') ? $('#mvPrazo').value : '');
+      lastAuto = pr.texto.slice(0, 600); $('#mvMsg').value = lastAuto; upd(); return pr;
+    };
     if ($('#mvPad')) $('#mvPad').onchange = function (e) {
       var m = S.msgs.find(function (x) { return String(x.id) === e.target.value; });
-      if (m) { var pr = preencherMsg(m.texto, p, to); $('#mvMsg').value = pr.texto.slice(0, 600); upd(); if (pr.faltou.length) toast('Este processo não tem ' + pr.faltou.join(', ') + '. Confira a frase antes de confirmar.'); }
+      if (m) { tplTxt = m.texto; var pr = aplicaTpl(); if (pr.faltou.length) toast('Este processo não tem ' + pr.faltou.join(', ') + '. Confira a frase antes de confirmar.'); }
       e.target.value = '';
     };
+    /* se o prazo do edital for informado/alterado depois de escolher o modelo e o texto não foi editado à mão, atualiza o texto */
+    if ($('#mvPrazo')) $('#mvPrazo').addEventListener('change', function () { if (tplTxt != null && $('#mvMsg').value === lastAuto) aplicaTpl(); });
     $('#mvCancel').onclick = function () { d.close(); };
     $('#mvOk').onclick = confirmMove;
     d.showModal(); setTimeout(function () { var m = $('#mvMsg'); if (m) m.focus(); }, 30);

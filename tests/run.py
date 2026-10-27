@@ -200,6 +200,17 @@ def mensagem_pronta_preenche_marcadores(srv):
         confere(re.match(r'^Olá João, protocolo 52474 na etapa Qualificação\. Prazo \d\d/\d\d/\d{4}\. Adv Dr\. Fulano\.$', t), 'marcadores não preenchidos: ' + t)
 
 @teste
+def prazo_informado_depois_atualiza_o_texto_do_modelo(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        p.click('.card[data-id="3"] .nome'); p.wait_for_timeout(500)
+        p.select_option('#dtFase', '5'); p.wait_for_timeout(400)
+        p.select_option('#mvPad', '1'); p.wait_for_timeout(300)
+        confere('Prazo' not in p.input_value('#mvMsg'), 'sem prazo o trecho deveria sumir: ' + p.input_value('#mvMsg'))
+        p.fill('#mvPrazo', '2026-12-15'); p.dispatch_event('#mvPrazo', 'change'); p.wait_for_timeout(300)
+        confere('Prazo 15/12/2026.' in p.input_value('#mvMsg'), 'o texto não acompanhou o prazo informado: ' + p.input_value('#mvMsg'))
+
+@teste
 def mensagem_pronta_sem_dado_some_sem_colchetes(srv):
     with Navegador(srv, 'oficial') as n:
         n.entrar(); p = n.page
