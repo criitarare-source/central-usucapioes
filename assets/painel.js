@@ -354,6 +354,15 @@
       var vCo = concl.map(function (p) { return Number(p.valor) || 0; });
       var totCo = vCo.reduce(function (a, b) { return a + b; }, 0);
       valorSec = '<section class="gr-card"><h3>Valor por fase <span class="chip gold">só Oficial</span></h3><p class="muted">Em andamento: <b>' + brl(tot) + '</b>' + maiorTxt(vAt, tot) + (semVal ? ' · ' + semVal + ' ' + plural(semVal, 'processo', 'processos') + ' sem valor informado' : '') + '.<br>Concluídos: <b>' + brl(totCo) + '</b>' + maiorTxt(vCo, totCo) + ', em ' + concl.length + ' ' + plural(concl.length, 'processo', 'processos') + '.</p>' + grBarras(vl, function (l) { return brl(l.v); }) + '</section>';
+      var prev = ativos.filter(function (p) { return p.emolumentos == null && emolEst(p) != null; });
+      if (prev.length || ativos.some(function (p) { return p.emolumentos != null; })) {
+        var pf = fases.filter(function (f) { return f.id < 8; }).map(function (f) {
+          return { nome: f.nome, cor: cor[f.id], v: ativos.filter(function (p) { return p.fase_id === f.id; }).reduce(function (a, p) { return a + (p.emolumentos != null ? Number(p.emolumentos) : (emolEst(p) || 0)); }, 0) };
+        });
+        var totP = pf.reduce(function (a, l) { return a + l.v; }, 0);
+        var semEst = ativos.filter(function (p) { return p.emolumentos == null && emolEst(p) == null; }).length;
+        valorSec += '<section class="gr-card"><h3>Emolumentos previstos (em andamento) <span class="chip gold">só Oficial</span></h3><p class="muted">Total previsto: <b>' + brl(totP) + '</b> em ' + ativos.length + ' ' + plural(ativos.length, 'processo', 'processos') + (semEst ? ', ' + semEst + ' sem valor para estimar' : '') + '. Usa o valor pago quando informado; senão, 2× a parte do Oficial da tabela sobre o valor do registro (sem abertura de matrícula, certidões e averbações).</p>' + grBarras(pf, function (l) { return brl(l.v); }) + '</section>';
+      }
       var comEmol = S.procs.filter(function (p) { return p.emolumentos != null; });
       if (comEmol.length) {
         var agora = new Date(), meses = [];
@@ -535,6 +544,12 @@
   }
 
   function brl(v) { var n = Number(v); return isFinite(n) ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''; }
+  /* Estimativa de emolumentos (só processos em andamento, sem valor pago): 2 x parte do Oficial da tabela, sobre cada registro. */
+  function emolEst(p) {
+    if (!window.CENTRAL_EMOL || p.fase_id >= 8 || p.emolumentos != null) return null;
+    var bases = p.registros && p.registros.length ? p.registros : (p.valor != null ? [p.valor] : null);
+    return window.CENTRAL_EMOL.estimar(bases);
+  }
   var HV_KEY = 'central_hide_vals';
   function hideVals() { return isOficial() && lsGet(HV_KEY, false) === true; }
   function money(v) { return hideVals() ? 'R$ ••••' : brl(v); }
@@ -559,6 +574,7 @@
       '<div class="nome">' + esc(p.requerente_nome) + '</div><div class="imovel">' + esc(p.referencia || p.imovel) + '</div>' +
       (isOficial() && p.valor != null ? '<div class="valor" title="Valor do ato / base de cálculo">' + money(p.valor) + '</div>' : '') +
       (isOficial() && p.emolumentos != null ? '<div class="emol" title="Emolumentos pagos">Emolumentos: ' + money(p.emolumentos) + '</div>' : '') +
+      (isOficial() && emolEst(p) != null ? '<div class="emol est" title="Estimativa: 2 × parte do Oficial da tabela, sobre o valor do registro. Não inclui abertura de matrícula, certidões nem averbações.">Emolumentos ≈ ' + money(emolEst(p)) + ' <small>(estimado)</small></div>' : '') +
       (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
       '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age' + ageCls + '" title="Tempo nesta fase">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
   }
@@ -919,7 +935,9 @@
         '<div class="grid2"><div><label for="edMat">Matrícula</label><input type="text" id="edMat" maxlength="40" value="' + esc(pa.matricula || '') + '"></div>' +
         '<div><label for="edPren">Data da prenotação</label><input type="date" id="edPren" value="' + esc(pa.data_prenotacao || '') + '"></div></div>' +
         '<label for="edVal">Valor <span class="opt">(R$, valor do ato ou base de cálculo; uso interno, não aparece na consulta pública)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edVal" inputmode="decimal" maxlength="20" placeholder="0,00" autocomplete="off" value="' + (pa.valor != null ? esc(Number(pa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' +
-        (isOficial() ? '<label for="edEmol">Emolumentos pagos <span class="opt">(R$, só o Oficial vê; não aparece na consulta pública)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edEmol" inputmode="decimal" maxlength="20" placeholder="0,00" autocomplete="off" value="' + (pa.emolumentos != null ? esc(Number(pa.emolumentos).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' : '') +
+        (isOficial() ? '<label for="edEmol">Emolumentos pagos <span class="opt">(R$, só o Oficial vê; não aparece na consulta pública)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edEmol" inputmode="decimal" maxlength="20" placeholder="0,00" autocomplete="off" value="' + (pa.emolumentos != null ? esc(Number(pa.emolumentos).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' +
+          (emolEst(pa) != null ? '<p class="hint">Estimativa pela tabela (2× Oficial): <b>' + money(emolEst(pa)) + '</b>. Vale até você informar o valor pago.</p>' : '') +
+          (pa.fase_id < 8 ? '<label for="edRegs">Valor de cada registro <span class="opt">(só se houver mais de um, separados por ponto e vírgula; usado só na estimativa)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edRegs" maxlength="200" autocomplete="off" placeholder="ex.: 100.000,00; 50.000,00" value="' + esc((pa.registros || []).map(function (n) { return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }).join('; ')) + '">' : '') : '') +
         '<label for="edTipo">Tipo de usucapião</label><input type="text" id="edTipo" maxlength="60" list="dlTipos" value="' + esc(pa.tipo_usucapiao || '') + '"><datalist id="dlTipos">' + TIPOS.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
         '<label for="edAdv">Advogado / representante</label>' + advSelect('edAdv', pa.advogado_id) +
         '<div class="err" id="edErr" role="alert"></div><button type="submit" class="btn primary" id="edSave">Salvar dados</button></form>' +
@@ -1007,6 +1025,12 @@
     if (valor !== null && isNaN(valor)) return (err.textContent = 'Valor inválido. Use o formato 1.234,56.');
     var emol = isOficial() && $('#edEmol') ? parseBrl($('#edEmol').value) : undefined;
     if (emol !== undefined && emol !== null && isNaN(emol)) return (err.textContent = 'Emolumentos inválidos. Use o formato 1.234,56.');
+    var regs;
+    if (isOficial() && $('#edRegs')) {
+      var partes = $('#edRegs').value.split(/[;\n]/).map(function (x) { return x.trim(); }).filter(Boolean).map(parseBrl);
+      if (partes.some(function (x) { return x === null || isNaN(x); })) return (err.textContent = 'Valores dos registros inválidos. Use 1.234,56; 2.345,67.');
+      regs = partes.length > 1 ? partes : null;
+    }
     var campos = {
       valor: valor, protocolo: proto, requerente_nome: nome, requerente_email: mail, emails_extra: extras, imovel: imo,
       referencia: $('#edRef').value.trim() || null, matricula: $('#edMat').value.trim() || null,
@@ -1014,6 +1038,7 @@
       advogado_id: $('#edAdv').value ? +$('#edAdv').value : null, atualizado_em: new Date().toISOString()
     };
     if (emol !== undefined) campos.emolumentos = emol;
+    if (regs !== undefined) campos.registros = regs;
     var go = function () {
       btn.disabled = true;
       sb.from('processos').update(campos).eq('id', pa.id).then(function (r) {
@@ -1551,12 +1576,12 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
   function exportCsv() {
-    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'].concat(isOficial() ? ['Valor (R$)', 'Emolumentos (R$)'] : []);
+    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'].concat(isOficial() ? ['Valor (R$)', 'Emolumentos (R$)', 'Emolumentos estimados (R$)'] : []);
     var rows = S.procs.slice().sort(function (a, b) { return a.protocolo.localeCompare(b.protocolo, 'pt-BR', { numeric: true }); }).map(function (p) {
       var a = advById(p.advogado_id);
       return [p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra || []).join(' | '), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
         p.data_prenotacao ? fmtYMD(p.data_prenotacao) : '', a ? a.nome : '', faseById(p.fase_id).nome, respKey(p) ? respName(p) : '',
-        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].concat(isOficial() ? [p.valor != null ? String(p.valor).replace('.', ',') : '', p.emolumentos != null ? String(p.emolumentos).replace('.', ',') : ''] : []).map(csvCell).join(';');
+        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].concat(isOficial() ? [p.valor != null ? String(p.valor).replace('.', ',') : '', p.emolumentos != null ? String(p.emolumentos).replace('.', ',') : '', emolEst(p) != null ? String(emolEst(p)).replace('.', ',') : ''] : []).map(csvCell).join(';');
     });
     var blob = new Blob(['﻿' + head.map(csvCell).join(';') + '\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob);

@@ -498,3 +498,5 @@ html[data-theme="dark"] .card .valor{color:#9fd3b8}
 @media (max-width:1400px){#bGlobal span,#bGlobal kbd{display:none}}
 @media (max-width:760px){.gr-grid2{grid-template-columns:1fr}}
 .card .emol{font-size:.8rem;color:var(--ink-3,#66786F);margin-top:1px;font-variant-numeric:tabular-nums}
+.card .emol.est{font-style:italic}
+.card .emol small{opacity:.75}
