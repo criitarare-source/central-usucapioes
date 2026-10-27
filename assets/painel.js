@@ -66,7 +66,7 @@
   var avatar = function (id) { var n = userName(id); return '<span class="av" style="--i:' + (userIdx(id) % 4) + '" aria-hidden="true">' + (id ? esc(initials(n)) : '?') + '</span>'; };
   var isOficial = function () { return S.me && S.me.papel === 'oficial'; };
   var byId = function (id) { return S.procs.find(function (p) { return p.id === id; }); };
-  var isProv = function (p) { return /\.invalid$/i.test(p.requerente_email || '') || /^a preencher/i.test(p.requerente_nome || ''); };
+  var isProv = function (p) { return p.fase_id < 8 && /\.invalid$/i.test(p.requerente_email || '') || /^a preencher/i.test(p.requerente_nome || ''); };
   var selCount = function () { return Object.keys(SEL.ids).length; };
   var fmtCode = function (c) { return String(c).replace(/(.{4})(?=.)/g, '$1-'); };
 
@@ -337,13 +337,31 @@
     }).join('') + '</ul>' : '<p class="muted">Nenhum processo em andamento.</p>';
     var leg = '<p class="gr-leg">' + fases.filter(function (f) { return f.id < 8; }).map(function (f) { return '<span><i style="background:' + cor[f.id] + '"></i>' + esc(f.nome) + '</span>'; }).join('') + '</p>';
     var valorSec = '';
-    if (isOficial()) {
+    var maiorTxt = function (arr, total) {
+      var m = Math.max.apply(null, arr.concat([0]));
+      return total > 0 && m / total > 0.5 ? ' (sem o maior valor, de ' + money(m) + ': ' + money(total - m) + ')' : '';
+    };
+    if (isOficial() && hideVals()) {
+      valorSec = '<section class="gr-card"><h3>Valores em R$ <span class="chip gold">só Oficial</span></h3><p class="muted">Os valores estão ocultos. Use o botão “Valores” no cabeçalho para mostrar.</p></section>';
+    } else if (isOficial()) {
       var vl = fases.filter(function (f) { return f.id < 8; }).map(function (f) {
         return { nome: f.nome, cor: cor[f.id], v: S.procs.filter(function (p) { return p.fase_id === f.id; }).reduce(function (a, p) { return a + (Number(p.valor) || 0); }, 0) };
       });
       var tot = vl.reduce(function (a, l) { return a + l.v; }, 0);
       var semVal = ativos.filter(function (p) { return p.valor == null; }).length;
-      valorSec = '<section class="gr-card"><h3>Valor por fase <span class="chip gold">só Oficial</span></h3><p class="muted">Soma dos valores dos processos em andamento: <b>' + brl(tot) + '</b>' + (semVal ? ' · ' + semVal + ' ' + plural(semVal, 'processo', 'processos') + ' sem valor informado' : '') + '.</p>' + grBarras(vl, function (l) { return brl(l.v); }) + '</section>';
+      var vAt = ativos.map(function (p) { return Number(p.valor) || 0; });
+      var concl = S.procs.filter(function (p) { return p.fase_id === 8; });
+      var vCo = concl.map(function (p) { return Number(p.valor) || 0; });
+      var totCo = vCo.reduce(function (a, b) { return a + b; }, 0);
+      valorSec = '<section class="gr-card"><h3>Valor por fase <span class="chip gold">só Oficial</span></h3><p class="muted">Em andamento: <b>' + brl(tot) + '</b>' + maiorTxt(vAt, tot) + (semVal ? ' · ' + semVal + ' ' + plural(semVal, 'processo', 'processos') + ' sem valor informado' : '') + '.<br>Concluídos: <b>' + brl(totCo) + '</b>' + maiorTxt(vCo, totCo) + ', em ' + concl.length + ' ' + plural(concl.length, 'processo', 'processos') + '.</p>' + grBarras(vl, function (l) { return brl(l.v); }) + '</section>';
+      var comEmol = S.procs.filter(function (p) { return p.emolumentos != null; });
+      if (comEmol.length) {
+        var agora = new Date(), meses = [];
+        for (var i = 11; i >= 0; i--) { var d0 = new Date(agora.getFullYear(), agora.getMonth() - i, 1); meses.push({ k: d0.getFullYear() * 12 + d0.getMonth(), nome: ('0' + (d0.getMonth() + 1)).slice(-2) + '/' + d0.getFullYear(), v: 0 }); }
+        comEmol.forEach(function (p) { if (p.fase_id !== 8) return; var d1 = new Date(p.fase_desde), k = d1.getFullYear() * 12 + d1.getMonth(); meses.forEach(function (m) { if (m.k === k) m.v += Number(p.emolumentos) || 0; }); });
+        var totE = comEmol.reduce(function (a, p) { return a + (Number(p.emolumentos) || 0); }, 0);
+        valorSec += '<section class="gr-card"><h3>Emolumentos pagos por mês <span class="chip gold">só Oficial</span></h3><p class="muted">Total informado: <b>' + brl(totE) + '</b> em ' + comEmol.length + ' ' + plural(comEmol.length, 'processo', 'processos') + '. Os meses seguem a data de conclusão.</p>' + grBarras(meses.map(function (m) { return { nome: m.nome, v: m.v, cor: '#1C5A45' }; }), function (l) { return brl(l.v); }) + '</section>';
+      }
     }
     $('#body').innerHTML = '<div class="page gut gr-page"><div class="page-h"><div><h2>Gráficos</h2><p class="muted" style="margin:0">Visão geral dos processos. Os números do quadro são em tempo real.</p></div><button type="button" class="btn sm gr-actions" id="grPrint">Imprimir / salvar PDF</button></div>' +
       '<div class="stats" style="padding:12px 0 4px">' + stat(ativos.length, 'em andamento') + stat(venc, 'prazos vencendo em 15 dias', 1) + stat(parados, 'parados há mais de 30 dias', 1) + stat(sem, 'sem escrevente responsável', 1) + '<div class="stat"><b id="grConc">…</b><span>concluídos neste mês</span></div></div>' +
@@ -385,13 +403,17 @@
       '<img class="logo" src="' + LOGO + '" alt="Registro de Imóveis de Itararé">' +
       '<div class="brand"><h1>Visualizador de Usucapiões</h1><p>Usucapião extrajudicial · Itararé</p></div>' +
       '<nav class="tabs" role="tablist" aria-label="Seções">' + tabs + '</nav>' +
-      '<div class="who2"><button type="button" class="btn hbtn" id="bGlobal" title="Buscar em todos os processos (atalho: /)">' + ICON.search + '<span>Buscar</span><kbd>/</kbd></button><button type="button" class="btn hbtn" id="bTema" title="Mudar o tema"></button><button type="button" class="btn hbtn" id="bFonte" title="Mudar o tamanho da letra"></button><button type="button" class="btn hbtn" id="bAjuda" title="Atalhos e tour" aria-label="Ajuda">?</button><span class="who-n">' + esc(S.me.nome) + (isOficial() ? ' · Oficial' : '') + '</span><a href="/" target="_blank" rel="noopener">Página do cliente</a><button class="btn" id="bOut">Sair</button></div>' +
+      '<div class="who2"><button type="button" class="btn hbtn" id="bGlobal" title="Buscar em todos os processos (atalho: /)">' + ICON.search + '<span>Buscar</span><kbd>/</kbd></button>' + (isOficial() ? '<button type="button" class="btn hbtn" id="bVals" aria-pressed="' + hideVals() + '" title="Ocultar ou mostrar os valores em R$ nesta tela"></button>' : '') + '<button type="button" class="btn hbtn" id="bTema" title="Mudar o tema"></button><button type="button" class="btn hbtn" id="bFonte" title="Mudar o tamanho da letra"></button><button type="button" class="btn hbtn" id="bAjuda" title="Atalhos e tour" aria-label="Ajuda">?</button><span class="who-n">' + esc(S.me.nome) + (isOficial() ? ' · Oficial' : '') + '</span><a href="/" target="_blank" rel="noopener">Página do cliente</a><button class="btn" id="bOut">Sair</button></div>' +
       '</div></header><div id="body" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>';
     $('#bOut').onclick = signOut;
     $('#bGlobal').onclick = openGlobalSearch;
     $('#bAjuda').onclick = openHelp;
     var prefBtns = function () { $('#bTema').textContent = '◐ ' + { auto: 'Auto', claro: 'Claro', escuro: 'Escuro' }[window.CENTRAL_PREFS.get().tema]; $('#bFonte').textContent = 'Aa ' + window.CENTRAL_PREFS.get().fonte; };
     prefBtns();
+    if ($('#bVals')) {
+      $('#bVals').textContent = hideVals() ? '◌ Valores ocultos' : '◉ Valores';
+      $('#bVals').onclick = function () { lsSet(HV_KEY, !hideVals()); renderApp(); };
+    }
     $('#bTema').onclick = function () { window.CENTRAL_PREFS.cycle('tema'); prefBtns(); };
     $('#bFonte').onclick = function () { window.CENTRAL_PREFS.cycle('fonte'); prefBtns(); };
     document.querySelectorAll('.tab').forEach(function (t) { t.onclick = function () { S.view = t.dataset.view; SEL.on = false; SEL.ids = {}; renderApp(); }; });
@@ -513,6 +535,9 @@
   }
 
   function brl(v) { var n = Number(v); return isFinite(n) ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''; }
+  var HV_KEY = 'central_hide_vals';
+  function hideVals() { return isOficial() && lsGet(HV_KEY, false) === true; }
+  function money(v) { return hideVals() ? 'R$ ••••' : brl(v); }
   function parseBrl(t) { t = String(t || '').replace(/[^0-9,.\-]/g, ''); if (!t) return null; if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, ''); var n = parseFloat(t); return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : NaN; }
   function cardHTML(p) {
     var a = attention(p), tags = [];
@@ -532,7 +557,8 @@
     return '<article class="card ' + nivel + (SEL.ids[p.id] ? ' is-sel' : '') + '" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
       '<div class="card-top">' + (SEL.on ? '<span class="selbox" aria-hidden="true">' + (SEL.ids[p.id] ? '✓' : '') + '</span>' : '') + '<span class="proto">' + esc(p.protocolo) + '</span><span class="grip" aria-hidden="true">' + ICON.grip + '</span></div>' +
       '<div class="nome">' + esc(p.requerente_nome) + '</div><div class="imovel">' + esc(p.referencia || p.imovel) + '</div>' +
-      (isOficial() && p.valor != null ? '<div class="valor" title="Valor do ato / base de cálculo">' + brl(p.valor) + '</div>' : '') +
+      (isOficial() && p.valor != null ? '<div class="valor" title="Valor do ato / base de cálculo">' + money(p.valor) + '</div>' : '') +
+      (isOficial() && p.emolumentos != null ? '<div class="emol" title="Emolumentos pagos">Emolumentos: ' + money(p.emolumentos) + '</div>' : '') +
       (tags.length ? '<div class="tags">' + tags.join('') + '</div>' : '') +
       '<div class="card-foot"><button type="button" class="assign" data-assign="' + p.id + '" title="Mudar com quem está o processo">' + avatarKey(respKey(p)) + '<span class="resp">' + esc(respName(p)) + '</span></button><span class="age' + ageCls + '" title="Tempo nesta fase">' + (age === 0 ? 'hoje' : 'há ' + age + ' ' + plural(age, 'dia', 'dias')) + '</span></div></article>';
   }
@@ -805,14 +831,14 @@
   }
 
   /* ---------- detalhe ---------- */
-  var FIELD = { protocolo: 'Protocolo', requerente_nome: 'Requerente', requerente_email: 'E-mail', emails_extra: 'E-mails adicionais', imovel: 'Imóvel', matricula: 'Matrícula', tipo_usucapiao: 'Tipo', data_prenotacao: 'Data de prenotação', referencia: 'Referência', advogado_id: 'Advogado', responsavel_id: 'Responsável', responsavel_externo_id: 'Responsável (sem conta)', valor: 'Valor' };
+  var FIELD = { protocolo: 'Protocolo', requerente_nome: 'Requerente', requerente_email: 'E-mail', emails_extra: 'E-mails adicionais', imovel: 'Imóvel', matricula: 'Matrícula', tipo_usucapiao: 'Tipo', data_prenotacao: 'Data de prenotação', referencia: 'Referência', advogado_id: 'Advogado', responsavel_id: 'Responsável', responsavel_externo_id: 'Responsável (sem conta)', valor: 'Valor', emolumentos: 'Emolumentos' };
   function fmtVal(c, v) {
     if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '—';
     if (c === 'responsavel_id') return userName(v);
     if (c === 'responsavel_externo_id') { var xx = extById(v); return xx ? xx.nome : '#' + v; }
     if (c === 'advogado_id') { var a = advById(v); return a ? a.nome : '#' + v; }
     if (c === 'data_prenotacao') return fmtYMD(v);
-    if (c === 'valor') return brl(v);
+    if (c === 'valor' || c === 'emolumentos') return money(v);
     if (Array.isArray(v)) return v.join(', ');
     return String(v);
   }
@@ -892,7 +918,8 @@
         '<label for="edRef">Referência curta <span class="opt">(aparece ao advogado, ex.: Chácara Santa Luzia)</span></label><input type="text" id="edRef" maxlength="80" value="' + esc(pa.referencia || '') + '">' +
         '<div class="grid2"><div><label for="edMat">Matrícula</label><input type="text" id="edMat" maxlength="40" value="' + esc(pa.matricula || '') + '"></div>' +
         '<div><label for="edPren">Data da prenotação</label><input type="date" id="edPren" value="' + esc(pa.data_prenotacao || '') + '"></div></div>' +
-        '<label for="edVal">Valor <span class="opt">(R$, valor do ato ou base de cálculo; uso interno, não aparece na consulta pública)</span></label><input type="text" id="edVal" inputmode="decimal" maxlength="20" placeholder="0,00" value="' + (pa.valor != null ? esc(Number(pa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' +
+        '<label for="edVal">Valor <span class="opt">(R$, valor do ato ou base de cálculo; uso interno, não aparece na consulta pública)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edVal" inputmode="decimal" maxlength="20" placeholder="0,00" autocomplete="off" value="' + (pa.valor != null ? esc(Number(pa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' +
+        (isOficial() ? '<label for="edEmol">Emolumentos pagos <span class="opt">(R$, só o Oficial vê; não aparece na consulta pública)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edEmol" inputmode="decimal" maxlength="20" placeholder="0,00" autocomplete="off" value="' + (pa.emolumentos != null ? esc(Number(pa.emolumentos).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '') + '">' : '') +
         '<label for="edTipo">Tipo de usucapião</label><input type="text" id="edTipo" maxlength="60" list="dlTipos" value="' + esc(pa.tipo_usucapiao || '') + '"><datalist id="dlTipos">' + TIPOS.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
         '<label for="edAdv">Advogado / representante</label>' + advSelect('edAdv', pa.advogado_id) +
         '<div class="err" id="edErr" role="alert"></div><button type="submit" class="btn primary" id="edSave">Salvar dados</button></form>' +
@@ -978,12 +1005,15 @@
     if (ruim) return (err.textContent = 'E-mail inválido: ' + ruim);
     var valor = parseBrl($('#edVal').value);
     if (valor !== null && isNaN(valor)) return (err.textContent = 'Valor inválido. Use o formato 1.234,56.');
+    var emol = isOficial() && $('#edEmol') ? parseBrl($('#edEmol').value) : undefined;
+    if (emol !== undefined && emol !== null && isNaN(emol)) return (err.textContent = 'Emolumentos inválidos. Use o formato 1.234,56.');
     var campos = {
       valor: valor, protocolo: proto, requerente_nome: nome, requerente_email: mail, emails_extra: extras, imovel: imo,
       referencia: $('#edRef').value.trim() || null, matricula: $('#edMat').value.trim() || null,
       data_prenotacao: $('#edPren').value || null, tipo_usucapiao: $('#edTipo').value.trim() || null,
       advogado_id: $('#edAdv').value ? +$('#edAdv').value : null, atualizado_em: new Date().toISOString()
     };
+    if (emol !== undefined) campos.emolumentos = emol;
     var go = function () {
       btn.disabled = true;
       sb.from('processos').update(campos).eq('id', pa.id).then(function (r) {
@@ -1521,12 +1551,12 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
   function exportCsv() {
-    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'].concat(isOficial() ? ['Valor (R$)'] : []);
+    var head = ['Protocolo', 'Requerente', 'E-mail', 'E-mails adicionais', 'Imóvel', 'Referência', 'Matrícula', 'Tipo de usucapião', 'Data da prenotação', 'Advogado', 'Fase', 'Responsável', 'Prazos em aberto', 'Na fase desde', 'Criado em'].concat(isOficial() ? ['Valor (R$)', 'Emolumentos (R$)'] : []);
     var rows = S.procs.slice().sort(function (a, b) { return a.protocolo.localeCompare(b.protocolo, 'pt-BR', { numeric: true }); }).map(function (p) {
       var a = advById(p.advogado_id);
       return [p.protocolo, p.requerente_nome, p.requerente_email, (p.emails_extra || []).join(' | '), p.imovel, p.referencia, p.matricula, p.tipo_usucapiao,
         p.data_prenotacao ? fmtYMD(p.data_prenotacao) : '', a ? a.nome : '', faseById(p.fase_id).nome, respKey(p) ? respName(p) : '',
-        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].concat(isOficial() ? [p.valor != null ? String(p.valor).replace('.', ',') : ''] : []).map(csvCell).join(';');
+        openPrazos(p.id).map(function (z) { return TIPO_PRAZO[z.tipo] + (z.descricao ? ' - ' + z.descricao : '') + ': ' + fmtYMD(z.vence_em); }).join(' | '), fmtDate(p.fase_desde), fmtDate(p.criado_em)].concat(isOficial() ? [p.valor != null ? String(p.valor).replace('.', ',') : '', p.emolumentos != null ? String(p.emolumentos).replace('.', ',') : ''] : []).map(csvCell).join(';');
     });
     var blob = new Blob(['﻿' + head.map(csvCell).join(';') + '\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob);

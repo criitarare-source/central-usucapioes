@@ -1,8 +1,8 @@
 /* Preferências deste aparelho: tema (automático/claro/escuro) e tamanho da letra. Roda antes de desenhar a página. */
 (function () {
   'use strict';
-  var KEY = 'central_prefs', TEMAS = ['auto', 'claro', 'escuro'], FONTES = ['normal', 'grande', 'maior'];
-  var st = { tema: 'auto', fonte: 'normal' };
+  var KEY = 'central_prefs2', TEMAS = ['auto', 'claro', 'escuro'], FONTES = ['normal', 'grande', 'maior'];
+  var st = { tema: 'claro', fonte: 'normal' };
   try { var j = JSON.parse(localStorage.getItem(KEY) || '{}'); if (TEMAS.indexOf(j.tema) >= 0) st.tema = j.tema; if (FONTES.indexOf(j.fonte) >= 0) st.fonte = j.fonte; } catch (e) {}
   function apply() {
     var r = document.documentElement;

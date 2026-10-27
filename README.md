@@ -112,3 +112,9 @@ Configurações da função (Supabase → Edge Functions → Secrets):
 
 ## Aba Gráficos
 Painel com processos por fase, carga por escrevente, entradas/conclusões por mês, tempo médio por fase e (só Oficial) valor por fase. Os dois últimos gráficos de série vêm da função `public.estatisticas()` (só números agregados, exige usuário aprovado).
+
+## Emolumentos, ocultar valores e tema
+- `processos.emolumentos` (R$): só o Oficial vê e edita; aparece no cartão apenas quando preenchido.
+- Botão **Valores** (só Oficial) oculta Valor e Emolumentos nas telas; preferência salva no aparelho.
+- Tema padrão: claro (chave `central_prefs2`, que reinicia escolhas antigas).
+- Carga dos usucapiões concluídos (Regwin, 27/10/2026): 12 processos na fase Concluído, sem e-mails.
