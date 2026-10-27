@@ -101,6 +101,7 @@
     var cur = fases.find(function (f) { return f.id === d.fase_id; }) || { nome: 'Em andamento' };
     var hist = d.historico || [], last = hist.length ? hist[hist.length - 1] : null;
     return '<div class="result"><div class="res-h"><span class="k">Usucapião extrajudicial</span><h3>Protocolo ' + esc(d.protocolo) + '</h3>' +
+      (d.requerente ? '<p class="req">Requerente: <b>' + esc(d.requerente) + '</b></p>' : '') +
       '<div class="meta"><span class="pill" style="--c:' + phaseColor(d.fase_id) + '">' + esc(cur.nome) + '</span>' +
       (last ? '<span>Atualizado em ' + fmtDate(last.em) + '</span>' : '') + '</div>' + progress(d, fases).html + '</div>' +
       timelineHTML(d, fases) +
@@ -134,8 +135,8 @@
     var itens = lista.map(function (d) {
       var cur = byId[d.fase_id] || { nome: 'Em andamento' }, pr = progress(d, fases), prazos = d.prazos || [];
       var hist = d.historico || [], last = hist.length ? hist[hist.length - 1] : null;
-      return '<li class="pitem" data-g="' + grupo(d) + '" data-q="' + esc((d.protocolo + ' ' + (d.referencia || '')).toLowerCase()) + '"><details' + (lista.length === 1 ? ' open' : '') + '>' +
-        '<summary><span class="pi-main"><b>' + esc(d.protocolo) + '</b>' + (d.referencia ? '<span class="pi-ref">' + esc(d.referencia) + '</span>' : '') + '</span>' +
+      return '<li class="pitem" data-g="' + grupo(d) + '" data-q="' + esc((d.protocolo + ' ' + (d.referencia || '') + ' ' + (d.requerente || '')).toLowerCase()) + '"><details' + (lista.length === 1 ? ' open' : '') + '>' +
+        '<summary><span class="pi-main"><b>' + esc(d.protocolo) + '</b>' + (d.requerente ? '<span class="pi-req">' + esc(d.requerente) + '</span>' : '') + (d.referencia ? '<span class="pi-ref">' + esc(d.referencia) + '</span>' : '') + '</span>' +
         '<span class="pill" style="--c:' + phaseColor(d.fase_id) + '">' + esc(cur.nome) + '</span>' +
         '<span class="pi-meta">' + (pr.total && d.fase_id < 9 ? '<span class="pi-prog" aria-label="' + pr.on + ' de ' + pr.total + ' etapas"><span class="seg" aria-hidden="true">' + Array.from({ length: pr.total }, function (_, i) { return '<i class="' + (i < pr.on ? 'on' : '') + '"></i>'; }).join('') + '</span></span>' : '') +
         (last ? '<span>Atualizado em ' + fmtDate(last.em) + '</span>' : '') + '</span>' +
@@ -150,7 +151,7 @@
       (cont.acao ? '<span class="warn-t"><b>' + cont.acao + '</b> ' + plural(cont.acao, 'precisa de ação', 'precisam de ação') + '</span>' : '') +
       (cont.concluido ? '<span><b>' + cont.concluido + '</b> ' + plural(cont.concluido, 'concluído', 'concluídos') + '</span>' : '') + '</div></div>' +
       (lista.length ? '<div class="adv-tools"><div class="chips" id="advChips" role="group" aria-label="Filtrar processos">' + chips + '</div>' +
-        (lista.length > 4 ? '<input type="search" id="advQ" placeholder="Buscar protocolo ou referência" aria-label="Buscar processo">' : '') +
+        (lista.length > 4 ? '<input type="search" id="advQ" placeholder="Buscar protocolo, nome ou referência" aria-label="Buscar processo">' : '') +
         '<div class="adv-open"><button type="button" class="linkbtn" id="advAll">Abrir todos</button><button type="button" class="linkbtn" id="advNone">Fechar todos</button><button type="button" class="linkbtn" data-act="print">Imprimir ou salvar em PDF</button></div></div>' +
         '<ul class="plist" id="advList">' + itens + '</ul><p class="adv-empty" id="advEmpty" hidden>Nenhum processo com esse filtro.</p>' :
         '<p class="note" style="margin:12px 16px">Nenhum processo está ligado a este código no momento.</p>') + '</div>';

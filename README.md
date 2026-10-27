@@ -122,3 +122,7 @@ Painel com processos por fase, carga por escrevente, entradas/conclusões por m�
 ## Auditoria, backup completo e testes
 - Aba **Auditoria** (só Oficial): histórico unificado de mudanças de fase, observações, prazos e alterações de dados (inclui valor, emolumentos e valor dos registros), com filtros e CSV.
 - Backup semanal: CSV + JSON completo por e-mail ao cartório. Restauração: `docs/RESTAURAR-BACKUP.md` e `docs/restaurar_backup.py`.
+
+## E-mail opcional, advogado obrigatório e nome na consulta
+- `requerente_email` pode ficar vazio (processo "Sem e-mail": não recebe avisos). Novo processo e importação exigem advogado; a edição exige advogado enquanto o processo não está concluído.
+- Consulta por protocolo mostra o nome parcial ("Maria da S. R."); a área do advogado mostra o nome completo. Migração: `supabase/manual/16_email_opcional_e_nome_na_consulta.sql`.

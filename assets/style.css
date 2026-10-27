@@ -505,3 +505,7 @@ html[data-theme="dark"] .card .valor{color:#9fd3b8}
 .au-wrap{overflow-x:auto}
 .au-wrap .tbl{margin-top:0}
 .nowrap{white-space:nowrap}
+
+/* nome do requerente na consulta */
+.res-h .req{margin:2px 0 8px;font-size:15px;color:var(--ink-2)}
+.pi-req{display:block;font-size:14px;font-weight:600}

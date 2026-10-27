@@ -29,7 +29,7 @@ PROCS = [
     processo(1, "52474", 5, "João", OFICIAL, valor=300000.0, emolumentos=1850.5),        # valor + emolumento pago
     processo(2, "52475", 3, "Ana", OFICIAL, valor=695837.33),                              # só estimado
     processo(3, "52476", 1, "Zé", ESCREVENTE, valor=5917034.6, registros=[2064128.02, 2064128.02, 1029050.72, 759727.84]),
-    processo(4, "52477", 1, "A preencher (protocolo 52477)", ESCREVENTE, requerente_email="sem-email-52477@pendente.invalid"),
+    processo(4, "52477", 1, "A preencher (protocolo 52477)", ESCREVENTE, requerente_email=None),
     processo(5, "52478", 8, "Concluída", None, valor=80000.0),                              # concluído: sem estimativa
 ]
 TABELAS = {
@@ -42,7 +42,7 @@ TABELAS = {
 }
 ESTATISTICAS = {"meses": [{"mes": "2026-%02d" % m, "entradas": m % 4, "concluidos": m % 3} for m in range(1, 11)] + [{"mes": "2026-11", "entradas": 1, "concluidos": 0}, {"mes": "2026-12", "entradas": 0, "concluidos": 0}],
                 "fases": [{"fase_id": 1, "dias": 0.5, "n": 3}, {"fase_id": 2, "dias": 12.5, "n": 2}]}
-CONSULTA = {"protocolo": "52474", "fase_id": 1, "prazos": [], "historico": [{"tipo": "fase", "fase_id": 1, "fase_nome": "Protocolo", "descricao": "Recebido", "mensagem": None, "prazo_edital": None, "em": "2026-08-01T10:00:00Z"}]}
+CONSULTA = {"protocolo": "52474", "requerente": "João da S. R.", "fase_id": 1, "prazos": [], "historico": [{"tipo": "fase", "fase_id": 1, "fase_nome": "Protocolo", "descricao": "Recebido", "mensagem": None, "prazo_edital": None, "em": "2026-08-01T10:00:00Z"}]}
 
 
 class Servidor:

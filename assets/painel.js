@@ -66,7 +66,8 @@
   var avatar = function (id) { var n = userName(id); return '<span class="av" style="--i:' + (userIdx(id) % 4) + '" aria-hidden="true">' + (id ? esc(initials(n)) : '?') + '</span>'; };
   var isOficial = function () { return S.me && S.me.papel === 'oficial'; };
   var byId = function (id) { return S.procs.find(function (p) { return p.id === id; }); };
-  var isProv = function (p) { return p.fase_id < 8 && /\.invalid$/i.test(p.requerente_email || '') || /^a preencher/i.test(p.requerente_nome || ''); };
+  var semMail = function (p) { return !p.requerente_email || /\.invalid$/i.test(p.requerente_email); };
+  var isProv = function (p) { return p.fase_id < 8 && /^a preencher/i.test(p.requerente_nome || ''); };
   var selCount = function () { return Object.keys(SEL.ids).length; };
   var fmtCode = function (c) { return String(c).replace(/(.{4})(?=.)/g, '$1-'); };
 
@@ -442,6 +443,20 @@
         var semEst = ativos.filter(function (p) { return p.emolumentos == null && emolEst(p) == null; }).length;
         valorSec += '<section class="gr-card"><h3>Emolumentos previstos (em andamento) <span class="chip gold">só Oficial</span></h3><p class="muted">Total previsto: <b>' + brl(totP) + '</b> em ' + ativos.length + ' ' + plural(ativos.length, 'processo', 'processos') + (semEst ? ', ' + semEst + ' sem valor para estimar' : '') + '. Usa o valor pago quando informado; senão, 2× a parte do Oficial da tabela sobre o valor do registro (sem abertura de matrícula, certidões e averbações).</p>' + grBarras(pf, function (l) { return brl(l.v); }) + '</section>';
       }
+      if (concl.length) {
+        var pagos = concl.filter(function (p) { return p.emolumentos != null; });
+        var totPg = pagos.reduce(function (a, p) { return a + (Number(p.emolumentos) || 0); }, 0);
+        var semPg = concl.filter(function (p) { return p.emolumentos == null; });
+        var estCo = semPg.reduce(function (a, p) { return a + (emolCalc(p) || 0); }, 0);
+        var semBase = semPg.filter(function (p) { return emolCalc(p) == null; }).length;
+        var ag2 = new Date(), ms2 = [];
+        for (var j = 11; j >= 0; j--) { var dj = new Date(ag2.getFullYear(), ag2.getMonth() - j, 1); ms2.push({ k: dj.getFullYear() * 12 + dj.getMonth(), nome: ('0' + (dj.getMonth() + 1)).slice(-2) + '/' + dj.getFullYear(), v: 0, cor: '#1C5A45' }); }
+        concl.forEach(function (p) { var dd = new Date(p.fase_desde), kk = dd.getFullYear() * 12 + dd.getMonth(), v = p.emolumentos != null ? Number(p.emolumentos) : (emolCalc(p) || 0); ms2.forEach(function (m) { if (m.k === kk) m.v += v; }); });
+        valorSec += '<section class="gr-card"><h3>Emolumentos dos concluídos <span class="chip gold">só Oficial</span></h3><p class="muted">' +
+          (pagos.length ? 'Pagos informados: <b>' + brl(totPg) + '</b> em ' + pagos.length + ' ' + plural(pagos.length, 'processo', 'processos') + '.<br>' : 'Nenhum valor pago foi informado ainda.<br>') +
+          (semPg.length ? 'Estimado para os outros ' + semPg.length + ' (2× a parte do Oficial da tabela sobre o valor): <b>' + brl(estCo) + '</b>' + (semBase ? ' · ' + semBase + ' sem valor para estimar' : '') + '.<br>' : '') +
+          'Total (pago + estimado): <b>' + brl(totPg + estCo) + '</b>. Os meses seguem a data de conclusão. Informe o valor pago em cada processo para trocar a estimativa pelo número real.</p>' + grBarras(ms2, function (l) { return brl(l.v); }) + '</section>';
+      }
       var comEmol = S.procs.filter(function (p) { return p.emolumentos != null; });
       if (comEmol.length) {
         var agora = new Date(), meses = [];
@@ -625,10 +640,14 @@
 
   function brl(v) { var n = Number(v); return isFinite(n) ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''; }
   /* Estimativa de emolumentos (só processos em andamento, sem valor pago): 2 x parte do Oficial da tabela, sobre cada registro. */
-  function emolEst(p) {
-    if (!window.CENTRAL_EMOL || p.fase_id >= 8 || p.emolumentos != null) return null;
+  function emolCalc(p) {
+    if (!window.CENTRAL_EMOL) return null;
     var bases = p.registros && p.registros.length ? p.registros : (p.valor != null ? [p.valor] : null);
     return window.CENTRAL_EMOL.estimar(bases);
+  }
+  function emolEst(p) {
+    if (p.fase_id >= 8 || p.emolumentos != null) return null;
+    return emolCalc(p);
   }
   var HV_KEY = 'central_hide_vals';
   function hideVals() { return isOficial() && lsGet(HV_KEY, false) === true; }
@@ -647,6 +666,7 @@
     if (a && !pzs.length) tags.push('<span class="chip ' + a.c + '">' + esc(a.t) + '</span>');
     var age = daysSince(p.fase_desde);
     if (isProv(p)) tags.unshift('<span class="chip prov">Dados a preencher</span>');
+    if (p.fase_id < 8 && semMail(p)) tags.push('<span class="chip" title="Este requerente não recebe e-mails de andamento">Sem e-mail</span>');
     var nivel = p.fase_id >= 8 ? '' : (a && a.c === 'bad') || (age > 60 && p.fase_id !== 3) ? 'lv-bad' : a || (age > 15 && p.fase_id !== 3) ? 'lv-warn' : '';
     var ageCls = p.fase_id >= 8 ? '' : p.fase_id !== 3 && age > 30 ? ' bad' : p.fase_id !== 3 && age > 15 ? ' warn' : '';
     return '<article class="card ' + nivel + (SEL.ids[p.id] ? ' is-sel' : '') + '" data-id="' + p.id + '" tabindex="0" role="button" aria-label="Processo ' + esc(p.protocolo) + ', ' + esc(p.requerente_nome) + ', responsável ' + esc(respName(p)) + '">' +
@@ -735,12 +755,12 @@
   function batchMoveDialog() {
     var ids = Object.keys(SEL.ids).map(Number); if (!ids.length) return;
     var procs = ids.map(byId).filter(Boolean);
-    var comEmail = procs.filter(function (p) { return !isProv(p); }).length;
+    var comEmail = procs.filter(function (p) { return !semMail(p) || (p.emails_extra || []).length > 0; }).length;
     openGen('<h2>Mover ' + procs.length + ' ' + plural(procs.length, 'processo', 'processos') + '</h2><div class="muted">Todos vão para a mesma fase, com a mesma mensagem.</div>' +
       '<label for="bmFase">Nova fase</label><select id="bmFase">' + visFases().map(function (f) { return '<option value="' + f.id + '">' + esc(f.nome) + '</option>'; }).join('') + '</select>' +
       '<label for="bmMsg">Mensagem para os requerentes <span class="opt">(opcional)</span></label><textarea id="bmMsg" rows="3" maxlength="600"></textarea>' +
       '<label class="check"><input type="checkbox" id="bmMail"' + (comEmail ? ' checked' : '') + '> Enviar e-mail aos requerentes (' + comEmail + ' ' + plural(comEmail, 'processo tem', 'processos têm') + ' e-mail válido)</label>' +
-      '<p class="hint">Quem estiver com dados provisórios (e-mail “pendente”) não recebe e-mail. O prazo do edital deve ser informado depois, em cada processo.</p>' +
+      '<p class="hint">Quem estiver sem e-mail cadastrado não recebe aviso. O prazo do edital deve ser informado depois, em cada processo.</p>' +
       '<div class="err" id="bmErr" role="alert"></div><div class="m-f"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" id="bmOk">Mover</button></div>', function (d) {
         $('#bmOk').onclick = function () {
           var to = +$('#bmFase').value, msg = $('#bmMsg').value.trim().slice(0, 600) || null, mail = $('#bmMail').checked;
@@ -852,11 +872,13 @@
 
   /* ---------- mover processo ---------- */
   var pending = null;
+  function nDest(p) { return (semMail(p) ? 0 : 1) + (p.emails_extra || []).length; }
+  function advMail(p) { var a = advById(p.advogado_id); return !!(a && a.ativo && a.copia_email && a.email); }
   function destinatariosTxt(p) {
-    var l = [mask(p.requerente_email)].concat((p.emails_extra || []).map(mask));
+    var l = (semMail(p) ? [] : [mask(p.requerente_email)]).concat((p.emails_extra || []).map(mask));
     var a = advById(p.advogado_id);
-    var s = l.join(', ');
-    if (a && a.ativo && a.copia_email && a.email) s += ' · cópia: ' + mask(a.email);
+    var s = l.join(', ') || 'nenhum requerente com e-mail';
+    if (a && a.ativo && a.copia_email && a.email) s += (l.length ? ' · ' : ' · ') + 'cópia: ' + mask(a.email);
     return s;
   }
   function mailHTML(p, to, msg, prazo) {
@@ -890,7 +912,7 @@
       '<textarea id="mvMsg" rows="3" maxlength="600" placeholder="Ex.: As notificações aos confrontantes foram expedidas."></textarea>' +
       '<p class="hint">Aparece na consulta pública e no e-mail. Não escreva CPF, endereço ou nomes de terceiros.</p>' +
       (to === 5 ? '<label for="mvPrazo">Prazo do edital termina em <span class="opt">(opcional)</span></label><input type="date" id="mvPrazo"><p class="hint">Deixe em branco se ainda não souber. Dá para informar depois.</p>' : '') +
-      '<label class="check"><input type="checkbox" id="mvEmail" checked> Enviar e-mail (' + (1 + (p.emails_extra || []).length) + ' ' + plural(1 + (p.emails_extra || []).length, 'destinatário', 'destinatários') + (advById(p.advogado_id) && advById(p.advogado_id).email && advById(p.advogado_id).copia_email ? ' + advogado' : '') + ')</label>' +
+      '<label class="check"><input type="checkbox" id="mvEmail"' + (nDest(p) || advMail(p) ? ' checked' : ' disabled') + '> Enviar e-mail (' + nDest(p) + ' ' + plural(nDest(p), 'destinatário', 'destinatários') + (advById(p.advogado_id) && advById(p.advogado_id).email && advById(p.advogado_id).copia_email ? ' + advogado' : '') + ')</label>' +
       '<details class="prev"><summary>Ver prévia do e-mail</summary><div id="mvPrev"></div></details>' +
       '<div class="err" id="mvErr" role="alert"></div>' +
       '<div class="m-f"><button type="button" class="btn ghost" id="mvCancel">Cancelar</button><button type="button" class="btn primary" id="mvOk">Confirmar mudança</button></div></div>';
@@ -958,8 +980,8 @@
     });
     return out;
   }
-  function advSelect(id, sel) {
-    return '<select id="' + id + '"><option value="">Nenhum</option>' + S.advs.filter(function (a) { return a.ativo || a.id === sel; }).map(function (a) {
+  function advSelect(id, sel, obrig) {
+    return '<select id="' + id + '"><option value="">' + (obrig ? 'Escolha o advogado…' : 'Nenhum') + '</option>' + S.advs.filter(function (a) { return a.ativo || a.id === sel; }).map(function (a) {
       return '<option value="' + a.id + '"' + (a.id === sel ? ' selected' : '') + '>' + esc(a.nome) + '</option>';
     }).join('') + '</select>';
   }
@@ -1009,7 +1031,7 @@
         '<label for="edProto">Número do protocolo</label><input type="text" id="edProto" inputmode="numeric" maxlength="12" value="' + esc(pa.protocolo) + '">' +
         '<p class="hint" id="edProtoHint">Mudar o protocolo muda o número que o requerente digita na página. Links de e-mails já enviados deixam de funcionar. A troca fica registrada.</p>' +
         '<label for="edNome">Requerente</label><input type="text" id="edNome" maxlength="200" value="' + esc(pa.requerente_nome) + '">' +
-        '<label for="edMail">E-mail do requerente</label><input type="email" id="edMail" maxlength="200" value="' + esc(pa.requerente_email) + '">' +
+        '<label for="edMail">E-mail do requerente <span class="opt">(opcional)</span></label><input type="email" id="edMail" maxlength="200" value="' + esc(pa.requerente_email) + '">' +
         '<label for="edExtra">Outros e-mails <span class="opt">(outros requerentes, um por linha, até 5)</span></label><textarea id="edExtra" rows="2" placeholder="outro@exemplo.com">' + esc((pa.emails_extra || []).join('\n')) + '</textarea>' +
         '<label for="edImo">Imóvel</label><input type="text" id="edImo" maxlength="300" value="' + esc(pa.imovel) + '">' +
         '<label for="edRef">Referência curta <span class="opt">(aparece ao advogado, ex.: Chácara Santa Luzia)</span></label><input type="text" id="edRef" maxlength="80" value="' + esc(pa.referencia || '') + '">' +
@@ -1020,7 +1042,7 @@
           (emolEst(pa) != null ? '<p class="hint">Estimativa pela tabela (2× Oficial): <b>' + money(emolEst(pa)) + '</b>. Vale até você informar o valor pago.</p>' : '') +
           (pa.fase_id < 8 ? '<label for="edRegs">Valor de cada registro <span class="opt">(só se houver mais de um, separados por ponto e vírgula; usado só na estimativa)</span></label><input type="' + (hideVals() ? 'password' : 'text') + '" id="edRegs" maxlength="200" autocomplete="off" placeholder="ex.: 100.000,00; 50.000,00" value="' + esc((pa.registros || []).map(function (n) { return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }).join('; ')) + '">' : '') : '') +
         '<label for="edTipo">Tipo de usucapião</label><input type="text" id="edTipo" maxlength="60" list="dlTipos" value="' + esc(pa.tipo_usucapiao || '') + '"><datalist id="dlTipos">' + TIPOS.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
-        '<label for="edAdv">Advogado / representante</label>' + advSelect('edAdv', pa.advogado_id) +
+        '<label for="edAdv">Advogado / representante' + (pa.fase_id < 8 ? ' <span class="opt">(obrigatório)</span>' : '') + '</label>' + advSelect('edAdv', pa.advogado_id, pa.fase_id < 8) +
         '<div class="err" id="edErr" role="alert"></div><button type="submit" class="btn primary" id="edSave">Salvar dados</button></form>' +
         '<h3>Notas internas</h3><label for="dtNotes">Só a equipe vê estas notas</label><textarea id="dtNotes" rows="3" maxlength="5000" placeholder="Anotações do processo">' + esc(pa.notas_internas) + '</textarea><div class="saved" id="dtSaved"></div>' +
         '<p><a class="btn sm" style="display:inline-block;text-decoration:none" href="/?p=' + encodeURIComponent(pa.protocolo) + '" target="_blank" rel="noopener">Ver como o requerente vê</a></p>' +
@@ -1098,10 +1120,11 @@
     var extras = parseEmails($('#edExtra').value), imo = $('#edImo').value.trim();
     if (!/^[0-9]{1,12}$/.test(proto)) return (err.textContent = 'O protocolo deve ter só números, como 52474.');
     if (nome.length < 2) return (err.textContent = 'Informe o nome do requerente.');
-    if (!EMAIL_RE.test(mail)) return (err.textContent = 'Informe um e-mail válido para o requerente.');
+    if (mail && !EMAIL_RE.test(mail)) return (err.textContent = 'O e-mail do requerente não parece válido. Corrija ou deixe em branco.');
     if (extras.length > 5) return (err.textContent = 'Use no máximo 5 e-mails adicionais.');
     var ruim = extras.find(function (x) { return !EMAIL_RE.test(x); });
     if (ruim) return (err.textContent = 'E-mail inválido: ' + ruim);
+    if (!$('#edAdv').value && pa.fase_id < 8) return (err.textContent = 'Informe o advogado ou representante.');
     var valor = parseBrl($('#edVal').value);
     if (valor !== null && isNaN(valor)) return (err.textContent = 'Valor inválido. Use o formato 1.234,56.');
     var emol = isOficial() && $('#edEmol') ? parseBrl($('#edEmol').value) : undefined;
@@ -1113,7 +1136,7 @@
       regs = partes.length > 1 ? partes : null;
     }
     var campos = {
-      valor: valor, protocolo: proto, requerente_nome: nome, requerente_email: mail, emails_extra: extras, imovel: imo,
+      valor: valor, protocolo: proto, requerente_nome: nome, requerente_email: mail || null, emails_extra: extras, imovel: imo,
       referencia: $('#edRef').value.trim() || null, matricula: $('#edMat').value.trim() || null,
       data_prenotacao: $('#edPren').value || null, tipo_usucapiao: $('#edTipo').value.trim() || null,
       advogado_id: $('#edAdv').value ? +$('#edAdv').value : null, atualizado_em: new Date().toISOString()
@@ -1143,13 +1166,13 @@
     d.innerHTML = '<div class="m-in"><h2>Novo processo</h2><div class="muted">O processo entra na fase “Protocolo / Prenotação”.</div>' +
       '<label for="nwProto">Número do protocolo</label><input type="text" id="nwProto" inputmode="numeric" maxlength="12" placeholder="Ex.: 52474">' +
       '<label for="nwNome">Requerente</label><input type="text" id="nwNome" maxlength="200" placeholder="Nome completo">' +
-      '<label for="nwMail">E-mail do requerente</label><input type="email" id="nwMail" maxlength="200" placeholder="nome@exemplo.com">' +
+      '<label for="nwMail">E-mail do requerente <span class="opt">(opcional)</span></label><input type="email" id="nwMail" maxlength="200" placeholder="nome@exemplo.com">' +
       '<label for="nwExtra">Outros e-mails <span class="opt">(outros requerentes, um por linha, opcional)</span></label><textarea id="nwExtra" rows="2"></textarea>' +
       '<label for="nwImo">Imóvel <span class="opt">(descrição curta)</span></label><input type="text" id="nwImo" maxlength="300" placeholder="Ex.: Rua das Flores, lote 5">' +
       '<label for="nwRef">Referência curta <span class="opt">(aparece ao advogado)</span></label><input type="text" id="nwRef" maxlength="80" placeholder="Ex.: Chácara Santa Luzia">' +
       '<div class="grid2"><div><label for="nwMat">Matrícula</label><input type="text" id="nwMat" maxlength="40"></div><div><label for="nwPren">Data da prenotação</label><input type="date" id="nwPren"></div></div>' +
       '<label for="nwTipo">Tipo de usucapião</label><input type="text" id="nwTipo" maxlength="60" list="dlTipos2"><datalist id="dlTipos2">' + TIPOS.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
-      '<label for="nwAdv">Advogado / representante</label>' + advSelect('nwAdv', null) +
+      '<label for="nwAdv">Advogado / representante <span class="opt">(obrigatório)</span></label>' + advSelect('nwAdv', null, true) +
       '<label for="nwResp">Com quem está o processo</label><select id="nwResp">' + respOptions('u:' + S.me.id) + '</select>' +
       '<p class="hint">Escolha com quem o caso vai ficar, mesmo que não seja você ou que a pessoa não tenha conta.</p>' +
       '<div class="err" id="nwErr" role="alert"></div><div class="m-f"><button type="button" class="btn ghost" id="nwCancel">Cancelar</button><button type="button" class="btn primary" id="nwOk">Criar processo</button></div></div>';
@@ -1166,20 +1189,21 @@
       var extras = parseEmails($('#nwExtra').value);
       if (!/^[0-9]{1,12}$/.test(proto)) return (err.textContent = 'O protocolo deve ter só números, como 52474.');
       if (nome.length < 2) return (err.textContent = 'Informe o nome do requerente.');
-      if (!EMAIL_RE.test(mail)) return (err.textContent = 'Informe um e-mail válido para o aviso de andamento.');
+      if (mail && !EMAIL_RE.test(mail)) return (err.textContent = 'O e-mail do requerente não parece válido. Corrija ou deixe em branco.');
+      if (!$('#nwAdv').value) return (err.textContent = 'Informe o advogado ou representante.');
       if (extras.length > 5) return (err.textContent = 'Use no máximo 5 e-mails adicionais.');
       var ruim = extras.find(function (x) { return !EMAIL_RE.test(x); });
       if (ruim) return (err.textContent = 'E-mail inválido: ' + ruim);
       var btn = $('#nwOk'); btn.disabled = true; err.textContent = '';
       var rk = $('#nwResp').value, rp = respPayload(rk === '__novo' ? '' : rk);
       sb.rpc('novo_processo', {
-        p_protocolo: proto, p_nome: nome, p_email: mail, p_imovel: imo, p_responsavel: rp.responsavel_id,
+        p_protocolo: proto, p_nome: nome, p_email: mail || null, p_imovel: imo, p_responsavel: rp.responsavel_id,
         p_emails_extra: extras, p_matricula: $('#nwMat').value.trim() || null, p_tipo: $('#nwTipo').value.trim() || null,
         p_prenotacao: $('#nwPren').value || null, p_referencia: $('#nwRef').value.trim() || null, p_advogado: $('#nwAdv').value ? +$('#nwAdv').value : null
       }).then(function (r) {
         btn.disabled = false;
         if (r.error) { err.textContent = errText(r.error); return; }
-        var fin = function () { d.close(); toast('Processo ' + proto + ' criado. E-mail de confirmação na fila de envio.'); reloadProcs(); };
+        var fin = function () { d.close(); toast('Processo ' + proto + ' criado.' + (mail || extras.length ? ' E-mail de confirmação na fila de envio.' : '')); reloadProcs(); };
         if (rp.responsavel_externo_id && r.data) sb.from('processos').update({ responsavel_externo_id: rp.responsavel_externo_id }).eq('id', r.data.id).then(fin); else fin();
       });
     };
@@ -1313,7 +1337,7 @@
       vistos[proto] = 1;
       var mail = g('email'), nome = g('requerente');
       if (nome.length < 2) { nome = 'A preencher (protocolo ' + proto + ')'; it.avisos.push('sem nome'); }
-      if (!EMAIL_RE.test(mail)) { if (mail) it.avisos.push('e-mail inválido'); else it.avisos.push('sem e-mail'); mail = 'sem-email-' + proto + '@pendente.invalid'; }
+      if (!EMAIL_RE.test(mail)) { if (mail) it.avisos.push('e-mail inválido (ficou sem e-mail)'); mail = ''; }
       var extras = parseEmails(g('outros_emails').replace(/\|/g, ',')).filter(function (e) { return EMAIL_RE.test(e); }).slice(0, 5);
       var pr = parseDateAny(g('prenotacao')); if (pr === undefined) { it.avisos.push('data inválida'); pr = null; }
       var fase = 1, fv = g('fase');
@@ -1330,6 +1354,7 @@
       }
       var adv = null, av = g('advogado');
       if (av) { var an = norm(av), a = S.advs.find(function (y) { return norm(y.nome) === an; }); if (a) adv = a.id; else it.avisos.push('advogado “' + av + '” não cadastrado'); }
+      if (!adv && !it.erro) it.erro = 'Advogado não informado ou não cadastrado';
       it.dados = { nome: nome, email: mail, extras: extras, imovel: g('imovel'), ref: g('referencia'), mat: g('matricula'), tipo: g('tipo'), pren: pr, fase: fase, resp: resp, adv: adv };
       itens.push(it);
     });

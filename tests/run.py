@@ -94,6 +94,42 @@ def graficos_e_auditoria_do_oficial(srv):
         confere(p.locator('#auLista tbody tr').count() == 1, 'filtro por tipo não funcionou')
         confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
 
+@teste
+def consulta_mostra_o_nome_do_requerente(srv):
+    with Navegador(srv, 'oficial', 420, 900) as n:
+        n.page.goto(srv.url + '/index.html?p=52474'); n.page.wait_for_timeout(1000)
+        confere('João da S. R.' in n.page.inner_text('.res-h'), 'o nome do requerente não apareceu na consulta')
+        confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
+
+@teste
+def novo_processo_exige_advogado_mas_nao_o_email(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        p.click('#bNew'); p.wait_for_timeout(300)
+        p.fill('#nwProto', '60001'); p.fill('#nwNome', 'Fulano de Tal')
+        p.click('#nwOk'); p.wait_for_timeout(200)
+        confere('advogado' in p.inner_text('#nwErr').lower(), 'deveria exigir o advogado: ' + p.inner_text('#nwErr'))
+        confere(not [c for c in n.calls if c[0] == 'novo_processo'], 'criou sem advogado')
+        p.select_option('#nwAdv', '1'); p.click('#nwOk'); p.wait_for_timeout(500)
+        corpo = [c for c in n.calls if c[0] == 'novo_processo'][-1][1]
+        confere('"p_email":null' in corpo.replace(' ', '') and '"p_advogado":1' in corpo.replace(' ', ''), 'payload errado: ' + corpo[:300])
+
+@teste
+def card_sem_email_mostra_selo(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        confere('Sem e-mail' in p.inner_text('.card[data-id="4"]'), 'faltou o selo “Sem e-mail”')
+        confere('Sem e-mail' not in p.inner_text('.card[data-id="1"]'), 'selo no card que tem e-mail')
+
+@teste
+def graficos_mostram_emolumentos_dos_concluidos(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        p.click('[data-view=graficos]'); p.wait_for_timeout(900)
+        t = p.inner_text('.gr-page')
+        confere('Emolumentos dos concluídos' in t and 'estimado' in t.lower(), 'faltou a parte dos concluídos')
+        confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
+
 def main():
     falhas = 0
     with Servidor() as srv:
