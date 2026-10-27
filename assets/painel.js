@@ -1081,16 +1081,27 @@
       '<p><span class="btn primary sm" style="display:inline-block">Acompanhar meu pedido</span></p></div></div>';
   }
   function primeiroNome(n) { return String(n || '').trim().split(/\s+/)[0] || ''; }
-  function preencherMsg(texto, p, to) {
-    var faltou = [], pz = openPrazos(p.id)[0], ed = openPrazos(p.id).filter(function (z) { return z.tipo === 'edital'; })[0], a = advById(p.advogado_id);
-    var vals = { nome: primeiroNome(p.requerente_nome), requerente: p.requerente_nome, protocolo: p.protocolo, fase: faseById(to || p.fase_id).nome,
-      prazo: ed ? fmtYMD(ed.vence_em) : pz ? fmtYMD(pz.vence_em) : '', advogado: a ? a.nome : '' };
-    var out = String(texto).replace(/\{(nome|requerente|protocolo|fase|prazo|advogado)\}/gi, function (m, k) {
+  var MARC = /\{(nome|requerente|protocolo|fase|prazo|advogado)\}/gi;
+  /* Preenche os marcadores. Trechos entre [[ ]] só ficam se TODOS os dados de dentro existirem; senão somem inteiros. */
+  function fillText(texto, vals) {
+    var faltou = [], removeu = false;
+    var out = String(texto).replace(/\[\[([\s\S]*?)\]\]/g, function (m, inner) {
+      var falta = false;
+      var r = inner.replace(MARC, function (mm, k) { k = k.toLowerCase(); if (vals[k]) return vals[k]; falta = true; return ''; });
+      if (falta) { removeu = true; return ''; }
+      return r;
+    });
+    out = out.replace(MARC, function (m, k) {
       k = k.toLowerCase(); if (vals[k]) return vals[k];
       if (faltou.indexOf(k) < 0) faltou.push(k); return '';
     });
-    if (faltou.length) out = out.replace(/[ \t]+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
+    if (removeu || faltou.length) out = out.replace(/[ \t]+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '').replace(/^[ \t]+/gm, '').replace(/\n{3,}/g, '\n\n').trim();
     return { texto: out, faltou: faltou };
+  }
+  function preencherMsg(texto, p, to) {
+    var pz = openPrazos(p.id)[0], ed = openPrazos(p.id).filter(function (z) { return z.tipo === 'edital'; })[0], a = advById(p.advogado_id);
+    return fillText(texto, { nome: primeiroNome(p.requerente_nome), requerente: p.requerente_nome, protocolo: p.protocolo, fase: faseById(to || p.fase_id).nome,
+      prazo: ed ? fmtYMD(ed.vence_em) : pz ? fmtYMD(pz.vence_em) : '', advogado: a ? a.nome : '' });
   }
   function openMove(id, to, ord) {
     var p = byId(id); if (!p || p.fase_id === to) { renderBoard(); return; }
@@ -1113,7 +1124,7 @@
     d.oninput = upd; upd();
     if ($('#mvPad')) $('#mvPad').onchange = function (e) {
       var m = S.msgs.find(function (x) { return String(x.id) === e.target.value; });
-      if (m) { var pr = preencherMsg(m.texto, p, to); $('#mvMsg').value = pr.texto.slice(0, 600); upd(); if (pr.faltou.length) toast('Este processo não tem ' + pr.faltou.join(', ') + ': o trecho ficou em branco. Confira a frase antes de confirmar.'); }
+      if (m) { var pr = preencherMsg(m.texto, p, to); $('#mvMsg').value = pr.texto.slice(0, 600); upd(); if (pr.faltou.length) toast('Este processo não tem ' + pr.faltou.join(', ') + '. Confira a frase antes de confirmar.'); }
       e.target.value = '';
     };
     $('#mvCancel').onclick = function () { d.close(); };
@@ -1936,9 +1947,11 @@
 
   function ajMensagens() {
     var grupos = [{ id: null, nome: 'Qualquer etapa' }].concat(S.fases.map(function (f) { return { id: f.id, nome: f.nome }; }));
-    $('#subBody').innerHTML = '<p class="muted">Textos prontos que os escreventes escolhem ao mover um processo. Máximo de 600 caracteres. Marcadores que se preenchem sozinhos: <code>{nome}</code> (primeiro nome do requerente), <code>{requerente}</code>, <code>{protocolo}</code>, <code>{fase}</code> (nova etapa), <code>{prazo}</code> (prazo do edital ou o mais próximo) e <code>{advogado}</code>. Se o processo não tiver o dado, o marcador some do texto (confira a frase antes de enviar).</p>' +
+    $('#subBody').innerHTML = '<p class="muted">Textos prontos que os escreventes escolhem ao mover um processo. Máximo de 600 caracteres.</p>' +
+      '<div class="card-box small"><b>Marcadores que se preenchem sozinhos:</b> <code>{nome}</code> (primeiro nome do requerente), <code>{requerente}</code>, <code>{protocolo}</code>, <code>{fase}</code> (nova etapa), <code>{prazo}</code> (prazo do edital ou o mais próximo) e <code>{advogado}</code>.<br>' +
+      '<b>Trecho opcional:</b> coloque entre <code>[[ ]]</code> o que só deve aparecer quando houver o dado. Se faltar algum dado dentro dos colchetes, o trecho inteiro some. Exemplo:<br><code>Olá {nome}, o seu pedido passou para a etapa {fase}. [[O prazo termina em {prazo}.]] Qualquer dúvida, procure o cartório.</code></div>' +
       '<div class="card-box"><h3 style="margin:0 0 6px">Nova mensagem</h3><div class="grid2"><div><label for="mpFase">Etapa</label><select id="mpFase">' + grupos.map(function (g) { return '<option value="' + (g.id == null ? '' : g.id) + '">' + esc(g.nome) + '</option>'; }).join('') + '</select></div><div><label for="mpTit">Título</label><input type="text" id="mpTit" maxlength="80"></div></div>' +
-      '<label for="mpTxt">Texto</label><textarea id="mpTxt" rows="3" maxlength="600"></textarea><div class="err" id="mpErr"></div><button class="btn primary" id="mpAdd">Adicionar</button></div>' +
+      '<label for="mpTxt">Texto</label><textarea id="mpTxt" rows="3" maxlength="600"></textarea><div id="mpPrev" class="mp-prev" aria-live="polite"></div><div class="err" id="mpErr"></div><button class="btn primary" id="mpAdd">Adicionar</button></div>' +
       grupos.map(function (g) {
         var l = S.msgs.filter(function (m) { return (m.fase_id == null ? null : m.fase_id) === g.id; });
         if (!l.length) return '';
@@ -1946,6 +1959,16 @@
           return '<div class="msg-row"><div><b>' + esc(m.titulo) + '</b><p>' + esc(m.texto) + '</p></div><button class="btn sm" data-mdel="' + m.id + '">Excluir</button></div>';
         }).join('');
       }).join('');
+    var mpPrev = function () {
+      var t = $('#mpTxt').value, el = $('#mpPrev'); if (!t.trim()) { el.innerHTML = ''; return; }
+      var fs = $('#mpFase').value, fn = fs ? faseById(+fs).nome : 'Edital';
+      var base = { nome: 'Maria', requerente: 'Maria da Silva', protocolo: '52474', fase: fn, prazo: '30/10/2026', advogado: 'Dr. Fulano' };
+      var sem = Object.assign({}, base, { prazo: '', advogado: '' });
+      var cheio = fillText(t, base), vazio = fillText(t, sem);
+      var fora = vazio.faltou.length ? '<div class="msg warn small">⚠ ' + vazio.faltou.map(function (k) { return '<code>{' + k + '}</code>'; }).join(', ') + ' está fora de <code>[[ ]]</code>: sem esse dado, a frase ficará quebrada. Coloque o trecho entre <code>[[ ]]</code>.</div>' : '';
+      el.innerHTML = '<div class="muted small">Prévia com todos os dados:</div><blockquote>' + esc(cheio.texto) + '</blockquote><div class="muted small">Prévia sem prazo e sem advogado:</div><blockquote>' + esc(vazio.texto) + '</blockquote>' + fora;
+    };
+    $('#mpTxt').oninput = mpPrev; $('#mpFase').onchange = mpPrev; mpPrev();
     $('#mpAdd').onclick = function () {
       var t = $('#mpTit').value.trim(), x = $('#mpTxt').value.trim(), f = $('#mpFase').value;
       if (t.length < 2 || x.length < 2) return ($('#mpErr').textContent = 'Preencha título e texto.');

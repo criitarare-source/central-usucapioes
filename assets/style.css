@@ -535,3 +535,9 @@ html[data-theme="dark"] .ag-chip.bad{background:#4A1B17;color:#F6B8B0}
 .tbl.eq td small{color:var(--ink-3)}
 .tag-lento{color:#B7791F;font-size:12px}
 @media (max-width:760px){.ag-sem{grid-template-columns:1fr}}
+
+/* prévia das mensagens prontas */
+.mp-prev{margin:6px 0}
+.mp-prev blockquote{margin:4px 0 8px;padding:8px 12px;border-left:3px solid var(--line,#D5DCD3);background:var(--card-2,#F5F7F3);border-radius:6px;white-space:pre-wrap}
+.msg.warn{background:#FBE3C8;color:#7A3E00;border-radius:8px;padding:8px 12px}
+html[data-theme="dark"] .msg.warn{background:#4A2E12;color:#F7CDA0}

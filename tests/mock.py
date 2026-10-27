@@ -33,7 +33,7 @@ PROCS = [
     processo(5, "52478", 8, "Concluída", None, valor=80000.0),                              # concluído: sem estimativa
 ]
 TABELAS = {
-    'perfis': PERFIS, 'fases': FASES, 'processos': PROCS, 'mensagens_padrao': [{"id": 1, "fase_id": None, "titulo": "Aviso", "texto": "Olá {nome}, protocolo {protocolo} na etapa {fase}. Prazo {prazo}. Adv {advogado}."}], 'pessoas_externas': [],
+    'perfis': PERFIS, 'fases': FASES, 'processos': PROCS, 'mensagens_padrao': [{"id": 1, "fase_id": None, "titulo": "Aviso", "texto": "Olá {nome}, protocolo {protocolo} na etapa {fase}. [[Prazo {prazo}.]] Adv {advogado}."}], 'pessoas_externas': [],
     'advogados': [{"id": 1, "nome": "Dr. Fulano", "email": "f@x.com", "copia_email": True, "codigo_final": "5E6F", "ativo": True, "criado_em": "2026-10-01T00:00:00Z"}],
     'prazos': [{"id": 1, "processo_id": 1, "tipo": "intimacao", "descricao": "Silva", "vence_em": dia(3), "situacao": "aberto", "concluido_em": None, "criado_em": "2026-10-01T00:00:00Z"}],
     'historico': [{"id": 1, "processo_id": 1, "tipo": "fase", "fase_id": 5, "mensagem": None, "prazo_edital": None, "email_solicitado": True, "por": OFICIAL, "em": (datetime.datetime.utcnow() - datetime.timedelta(days=2)).isoformat() + "Z"}],

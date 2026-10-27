@@ -207,7 +207,21 @@ def mensagem_pronta_sem_dado_some_sem_colchetes(srv):
         p.select_option('#dtFase', '2'); p.wait_for_timeout(400)
         p.select_option('#mvPad', '1'); p.wait_for_timeout(300)
         t = p.input_value('#mvMsg')
-        confere('[' not in t and '{' not in t and ' .' not in t and '  ' not in t and 'Prazo.' in t, 'texto sem dado deveria ficar limpo: ' + t)
+        confere(t == 'Olá Zé, protocolo 52476 na etapa Qualificação. Adv Dr. Fulano.', 'sem prazo, o trecho opcional deveria sumir inteiro: ' + t)
+
+@teste
+def previa_do_modelo_mostra_com_e_sem_prazo(srv):
+    with Navegador(srv, 'oficial') as n:
+        n.entrar(); p = n.page
+        p.click('[data-view=ajustes]'); p.wait_for_timeout(500)
+        p.click('[data-sub=mensagens]'); p.wait_for_timeout(400)
+        p.fill('#mpTxt', 'Olá {nome}. [[O prazo termina em {prazo}.]] Procure o cartório.'); p.wait_for_timeout(300)
+        t = p.inner_text('#mpPrev')
+        confere('Olá Maria. O prazo termina em 30/10/2026. Procure o cartório.' in t and 'Olá Maria. Procure o cartório.' in t, 'prévia errada: ' + t)
+        confere('fora de' not in t, 'não deveria avisar quando o prazo está entre colchetes')
+        p.fill('#mpTxt', 'Olá {nome}. O prazo termina em {prazo}.'); p.wait_for_timeout(300)
+        confere('fora de' in p.inner_text('#mpPrev'), 'deveria avisar marcador fora dos colchetes')
+        confere(not n.erros, 'erros de JavaScript: %s' % n.erros)
 
 @teste
 def desfazer_em_lote_lista_e_desfaz(srv):
