@@ -1,0 +1,9 @@
+{
+  "name": "usucapioes-tests",
+  "private": true,
+  "description": "Dependências só dos testes (o site em si não usa npm).",
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4",
+    "sortablejs": "1.15.2"
+  }
+}
