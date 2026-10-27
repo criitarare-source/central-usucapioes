@@ -126,3 +126,12 @@ Painel com processos por fase, carga por escrevente, entradas/conclusões por m�
 ## E-mail opcional, advogado obrigatório e nome na consulta
 - `requerente_email` pode ficar vazio (processo "Sem e-mail": não recebe avisos). Novo processo e importação exigem advogado; a edição exige advogado enquanto o processo não está concluído.
 - Consulta por protocolo mostra o nome parcial ("Maria da S. R."); a área do advogado mostra o nome completo. Migração: `supabase/manual/16_email_opcional_e_nome_na_consulta.sql`.
+
+## Etiquetas, agenda, acessos e ranking
+- **Etiquetas livres** em cada processo (até 8, 30 letras): campo em "Editar dados", filtro no quadro, aparecem no card. Coluna `processos.etiquetas`.
+- **Agenda** (aba): prazos em aberto por semana ou mês; clique abre o processo.
+- **Desfazer movimentos** (botão no quadro): Oficial até 7 dias, demais até 15 minutos, só a última movimentação de cada processo e se o e-mail dela ainda não saiu. Fica na auditoria.
+- **Mensagens prontas** aceitam `{nome}`, `{requerente}`, `{protocolo}`, `{fase}`, `{prazo}`, `{advogado}`.
+- **Acessos** (aba, só Oficial): toda consulta pública (protocolo, e-mail, código, links) é registrada em `acessos_consulta` (data, forma, protocolo/advogado, IP, aparelho) por 12 meses. A página pública informa isso.
+- **Ranking por escrevente** (Gráficos, só Oficial): tempo médio por fase dos processos de cada pessoa, ocultando células com menos de 3 passagens.
+- Migração: `supabase/manual/18_etiquetas_acessos_equipe.sql`.

@@ -509,3 +509,29 @@ html[data-theme="dark"] .card .valor{color:#9fd3b8}
 /* nome do requerente na consulta */
 .res-h .req{margin:2px 0 8px;font-size:15px;color:var(--ink-2)}
 .pi-req{display:block;font-size:14px;font-weight:600}
+
+/* etiquetas, agenda, ranking, acessos */
+.chip.tag{background:var(--tag-bg,#E4EFE9);color:var(--tag-fg,#1C5A45)}
+html[data-theme="dark"] .chip.tag{--tag-bg:#1E3A2E;--tag-fg:#9fd3b8}
+.ag-page .ag-t{margin:8px 0;text-transform:capitalize}
+.ag-sem{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:8px;overflow-x:auto}
+.ag-col{border:1px solid var(--line,#D5DCD3);border-radius:10px;padding:8px;min-height:140px;display:flex;flex-direction:column;gap:6px;background:var(--card,#fff)}
+.ag-col.hoje,.ag-cel.hoje{outline:2px solid var(--btn,#0F3B2D)}
+.ag-h{font-size:13px;color:var(--ink-2)}
+.ag-mes{display:grid;grid-template-columns:repeat(7,minmax(90px,1fr));gap:4px;overflow-x:auto}
+.ag-dow{font-size:12px;color:var(--ink-3);text-transform:uppercase;padding:2px 4px}
+.ag-cel{border:1px solid var(--line,#D5DCD3);border-radius:8px;padding:4px;min-height:96px;display:flex;flex-direction:column;gap:3px;background:var(--card,#fff)}
+.ag-cel.fora{opacity:.5}
+.ag-d{font-size:12px;color:var(--ink-3)}
+.ag-chip{all:unset;box-sizing:border-box;cursor:pointer;display:block;font-size:12px;line-height:1.3;padding:4px 6px;border-radius:6px;background:#F3E7C8;color:#5C3F08;border-left:3px solid #A8751F}
+.ag-chip.warn{background:#FBE3C8;color:#7A3E00;border-left-color:#D9822B}
+.ag-chip.bad{background:#F8D7D3;color:#8A1C12;border-left-color:#C0392B}
+.ag-chip:focus-visible{outline:2px solid var(--btn,#0F3B2D)}
+.ag-chip .ag-n{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+.ag-venc{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 10px}
+html[data-theme="dark"] .ag-chip{background:#3A2F14;color:#F2DFAE}
+html[data-theme="dark"] .ag-chip.warn{background:#4A2E12;color:#F7CDA0}
+html[data-theme="dark"] .ag-chip.bad{background:#4A1B17;color:#F6B8B0}
+.tbl.eq td small{color:var(--ink-3)}
+.tag-lento{color:#B7791F;font-size:12px}
+@media (max-width:760px){.ag-sem{grid-template-columns:1fr}}

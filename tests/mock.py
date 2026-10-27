@@ -33,7 +33,7 @@ PROCS = [
     processo(5, "52478", 8, "Concluída", None, valor=80000.0),                              # concluído: sem estimativa
 ]
 TABELAS = {
-    'perfis': PERFIS, 'fases': FASES, 'processos': PROCS, 'mensagens_padrao': [], 'pessoas_externas': [],
+    'perfis': PERFIS, 'fases': FASES, 'processos': PROCS, 'mensagens_padrao': [{"id": 1, "fase_id": None, "titulo": "Aviso", "texto": "Olá {nome}, protocolo {protocolo} na etapa {fase}. Prazo {prazo}. Adv {advogado}."}], 'pessoas_externas': [],
     'advogados': [{"id": 1, "nome": "Dr. Fulano", "email": "f@x.com", "copia_email": True, "codigo_final": "5E6F", "ativo": True, "criado_em": "2026-10-01T00:00:00Z"}],
     'prazos': [{"id": 1, "processo_id": 1, "tipo": "intimacao", "descricao": "Silva", "vence_em": dia(3), "situacao": "aberto", "concluido_em": None, "criado_em": "2026-10-01T00:00:00Z"}],
     'historico': [{"id": 1, "processo_id": 1, "tipo": "fase", "fase_id": 5, "mensagem": None, "prazo_edital": None, "email_solicitado": True, "por": OFICIAL, "em": (datetime.datetime.utcnow() - datetime.timedelta(days=2)).isoformat() + "Z"}],
@@ -93,6 +93,17 @@ class Navegador:
                     if mm.group(1):
                         self.calls.append((nome, route.request.post_data))
                         if nome == 'status_links': return ok([])
+                        if nome == 'movimentos_recentes': return ok([
+                            {"hist_id": 7, "processo_id": 1, "protocolo": "52474", "requerente": "João", "de_fase": 3, "para_fase": 5, "em": "2026-10-20T10:00:00Z", "por_nome": "Oficial", "pode": True, "motivo": None},
+                            {"hist_id": 8, "processo_id": 2, "protocolo": "52475", "requerente": "Ana", "de_fase": 1, "para_fase": 3, "em": "2026-10-19T10:00:00Z", "por_nome": "Maria Silva", "pode": False, "motivo": "o e-mail já foi enviado"}])
+                        if nome == 'estatisticas_equipe': return ok([{"resp_id": ESCREVENTE, "resp_nome": "Maria Silva", "fase_id": 1, "dias_medio": 4.5, "n": 5}, {"resp_id": ESCREVENTE, "resp_nome": "Maria Silva", "fase_id": 2, "dias_medio": 9.0, "n": 1}])
+                        if nome == 'listar_acessos': return ok([
+                            {"id": 1, "em": "2026-10-26T12:00:00Z", "via": "protocolo", "ok": True, "ip": "200.1.2.3", "agente": "Mozilla/5.0 (iPhone; CPU iPhone OS 17) AppleWebKit Safari/604.1", "protocolo": "52474", "requerente": "João", "advogado": None},
+                            {"id": 2, "em": "2026-10-26T13:00:00Z", "via": "link_permanente", "ok": True, "ip": "200.9.9.9", "agente": "Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari/537", "protocolo": None, "requerente": None, "advogado": "Dr. Fulano"},
+                            {"id": 3, "em": "2026-10-26T14:00:00Z", "via": "protocolo", "ok": False, "ip": "200.1.2.3", "agente": "Mozilla/5.0 (iPhone; CPU iPhone OS 17) AppleWebKit Safari/604.1", "protocolo": "11111", "requerente": None, "advogado": None}])
+                        if nome == 'criar_advogado':
+                            TABELAS['advogados'].append({"id": 2, "nome": json.loads(route.request.post_data)['p_nome'], "email": None, "copia_email": True, "codigo_final": "AAAA", "ativo": True, "criado_em": "2026-10-27T00:00:00Z"})
+                            return ok("ABCD1234EFGH")
                         if nome == 'consulta_advogado_perm':
                             return ok({"nome": "Dr. Fulano", "processos": [dict(CONSULTA, referencia="Chácara")]} if 'tokenvalido' in (route.request.post_data or '') else None)
                         return ok(ESTATISTICAS if nome == 'estatisticas' else CONSULTA if nome == 'consulta_publica' else {"id": 1})
